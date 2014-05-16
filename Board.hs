@@ -59,3 +59,28 @@ onBoard (x,y) =
   where
     isqb n = n >= (-5) && n <= 5
 
+startp' :: Player -> Board
+startp' player = M.fromList $ do
+  y <- [-5,-4]
+  x <- [-5 .. -3] ++ [y+3..y+5]
+  return ((x,y), if x <= (-3)
+    then (player,NE)
+    else (player,NW))
+
+rotateBoard :: Int -> Board -> Board
+rotateBoard 0 b = b
+rotateBoard n bd = (M.fromList . map rotate1 . M.toList) (bd :: Board) where
+  rotate1 (t,(p,d)) = (rt t,(p,rd d))
+  rt (x,y) = (a*x+c*y, b*x+d*y)
+  (a,b,c,d) = case n `mod` 6 of
+    0 -> (1,0,0,1)
+    1 -> (1,1,-1,0)
+    2 -> (0,1,-1,-1)
+    3 -> (-1,0,0,-1)
+    4 -> (-1,-1,1,0)
+    5 -> (0,-1,1,1)
+  rd = toEnum . (`mod` 6) . (+ (6 - n)) . fromEnum
+
+startBoard2 = M.union (startp' Blue) (rotateBoard 3 $ startp' Red)
+startBoard3 = foldl1 M.union [startp' Blue, rotateBoard 2 $ startp' Green, rotateBoard 4 $ startp' Red]
+
