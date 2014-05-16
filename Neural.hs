@@ -34,7 +34,7 @@ backprop rate i t n = fst $ backprop' i t n where
         w + rate * d * sdh * x
        ) wl dl (1:i)
      ) l we hs
-    be = map sum $ transpose we
+    be = map ((`subtract` 0) . sum) $ transpose we
 
 randomNNet :: RandomGen g => g -> [Int] -> NNet
 randomNNet _ [_] = []
