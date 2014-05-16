@@ -6,5 +6,5 @@ The original is here: https://sourceforge.net/p/turtlemelee/ I am the author of 
 
 As well as reimplementing in Haskell, I intend to add these features:
 - A 3 player version
-- A neural network evaluation function
+- A neural network evaluation function using temporal difference learning + backpropagation
 - A save format, maybe using arithmetic coding.
