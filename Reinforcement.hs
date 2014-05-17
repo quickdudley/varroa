@@ -18,7 +18,7 @@ Explanation of magic numbers:
   6*3 = 18.
   So each space on the grid gets 18 inputs, only 1 of which will be set to 1
   at any given time.
-The total number of inputs is 1638.
+There are 91 spaces on the grid, so the total number of inputs is 1638.
 -}
 mapBoard :: Player -> Board -> [Double]
 mapBoard p b = concatMap mapTile boardRange where

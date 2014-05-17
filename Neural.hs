@@ -2,7 +2,8 @@ module Neural (
   NNet,
   Layer,
   feedforward,
-  backprop
+  backprop,
+  randomNNet
  ) where
 
 import Data.List
@@ -26,18 +27,28 @@ feedlayer i = map (sigmoid . sum . zipWith (*) (1:i))
 backprop :: Double -> [Double] -> [Double] -> NNet -> NNet
 backprop rate i t n = fst $ backprop' i t n where
   backprop' i t (l:n) = (nw:r,be) where
+    -- hs: output of this layer
     hs = feedlayer i l
+    -- r: the next layer updated
+    -- e: the error of this layer's output
     (r,e) = case n of
       [] -> ([], zipWith subtract hs t)
       x -> backprop' hs t n
+    -- we: Error divided among weights - possibly buggy
     we = zipWith (\oe w ->
       map (*oe) w
      ) e l
+    -- nw: New weights for this layer - possibly buggy
     nw = zipWith3 (\wl dl h -> let sdh = sigmoidDerivative h in
-      zipWith3 (\w d x ->
-        w + rate * d * sdh * x
+      zipWith3 (\w d x -> let
+        delta' = rate * d * sdh * x
+        delta = if abs w < 1.0e-80
+          then 1.1e-80 * (if delta' < 0 then -1 else 1)
+          else delta'
+        in w + delta
        ) wl dl (1:i)
      ) l we hs
+    -- be: Errors to propagate back to posterior nodes
     be = map sum $ transpose we
 
 randomNNet :: RandomGen g => g -> [Int] -> NNet
