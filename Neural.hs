@@ -24,6 +24,23 @@ feedforward = flip (foldl' feedlayer)
 
 feedlayer i = map (sigmoid . sum . zipWith (*) (1:i))
 
+{-
+What was causing the bug
+========================
+When an error signal reaches a node, this should happen:
+      -->Multiply by weights-->Propagate to earlier nodes
+     /
+error
+     \
+      -->Update weights.
+
+What was happening before I fixed the bug:
+                            -->Propagate to earlier nodes
+                           /
+error-->Multiply by weights
+                           \
+                            -->Update weights
+-}
 backprop :: Double -> [Double] -> [Double] -> NNet -> NNet
 backprop rate i t n = fst $ backprop' i t n where
   backprop' i t (l:n) = (nw:r,be) where
@@ -49,7 +66,7 @@ backprop rate i t n = fst $ backprop' i t n where
         w + rate * d * sdh * x
        ) wl (1:i)
      ) l e hs
-    -- be: Errors to propagate back to posterior nodes
+    -- be: Errors to propagate back to earlier nodes
     be = map sum $ transpose we
 
 randomNNet :: RandomGen g => g -> [Int] -> NNet
