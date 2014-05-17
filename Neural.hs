@@ -51,11 +51,11 @@ backprop rate i t n = fst $ backprop' i t n where
     (r,e) = case n of
       [] -> ([], zipWith subtract hs t)
       x -> backprop' hs t n
-    -- we: Error divided among weights - possibly buggy
+    -- we: Error divided among weights
     we = zipWith (\oe w ->
       map (*oe) w
      ) e l
-    -- nw: New weights for this layer - possibly buggy
+    -- nw: New weights for this layer
     -- wl: weights leading to current node
     -- h: this node's output
     nw = zipWith3 (\wl d h -> let sdh = sigmoidDerivative h in
