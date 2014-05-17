@@ -39,7 +39,13 @@ backprop rate i t n = fst $ backprop' i t n where
       map (*oe) w
      ) e l
     -- nw: New weights for this layer - possibly buggy
+    -- wl: weights leading to current node
+    -- dl: error by weight for current node
+    -- h: this node's output
     nw = zipWith3 (\wl dl h -> let sdh = sigmoidDerivative h in
+      -- w: The current weight
+      -- d: The error assigned to the current weight
+      -- x: The input to the current synapse
       zipWith3 (\w d x -> let
         delta' = rate * d * sdh * x
         delta = if abs w < 1.0e-80
