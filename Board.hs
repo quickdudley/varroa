@@ -5,6 +5,7 @@ module Board (
   Board,
   step,
   onBoard,
+  boardRange,
   rotateBoard,
   startBoard2,
   startBoard3
@@ -17,7 +18,7 @@ import Data.Int
 import Data.Maybe (catMaybes)
 
 data Player = Red | Green | Blue
-  deriving (Eq,Enum,Bounded,Show)
+  deriving (Eq,Enum,Bounded,Show,Ord)
 
 data Direction = NE | EE | SE | SW | WW | NW
   deriving (Eq,Enum,Bounded,Show)

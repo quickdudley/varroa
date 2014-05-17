@@ -1,4 +1,8 @@
 module Neural (
+  NNet,
+  Layer,
+  feedforward,
+  backprop
  ) where
 
 import Data.List
