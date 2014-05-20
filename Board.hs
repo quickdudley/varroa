@@ -6,13 +6,16 @@ module Board (
   step,
   onBoard,
   boardRange,
+  playersFrom,
   rotateBoard,
   startBoard2,
-  startBoard3
+  startBoard3,
+  whichPlayers,
+  whichPlayersFrom
  ) where
 
 import Control.Monad (guard)
-import Data.List (nub)
+import Data.List (nub,intersect)
 import qualified Data.Map as M
 import Data.Int
 import Data.Maybe (catMaybes)
@@ -43,6 +46,10 @@ step (x,y) d = case d of
   SW -> (x-1,y-1)
   WW -> (x-1,y)
   NW -> (x,y+1)
+
+playersFrom Blue = [Blue,Green,Red]
+playersFrom Green = [Green,Red,Blue]
+playersFrom Red = [Red,Blue,Green]
 
 opposing :: Direction -> Direction
 opposing = turn 3
@@ -130,4 +137,10 @@ genMoves p b = nub $ do
         else Nothing,
       Just (M.insert (x,y) (p,turn 1 d) b)
      ]
+
+whichPlayers :: Board -> [Player]
+whichPlayers = whichPlayersFrom Blue
+
+whichPlayersFrom :: Player -> Board -> [Player]
+whichPlayersFrom p b = intersect (playersFrom p) $ map fst (M.elems b)
 

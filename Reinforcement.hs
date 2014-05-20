@@ -1,15 +1,23 @@
 module Reinforcement (
  ) where
 
+import Arithmetic (
+  Range,
+  fromBytes,
+  DecodeTree,
+  DecodeT(..),
+  runDecode,
+  runDecodeT,
+  randomA,
+  transformDecoder,
+  modelDecode
+ )
 import Board
 import Neural
 
 import Data.List
 import qualified Data.Map as M
-
-playersFrom Blue = [Blue,Green,Red]
-playersFrom Green = [Green,Red,Blue]
-playersFrom Red = [Red,Blue,Green]
+import System.Random
 
 {-
 Represent the board as a list of doubles for feeding to the neural network.
@@ -27,7 +35,18 @@ mapBoard p b = concatMap mapTile boardRange where
     Just (p,d) -> let
       tn = tileN p d
       in replicate tn 0 ++ [1] ++ replicate (17 - tn) 0
-  playing = intersect (playersFrom p) $ map fst (M.elems b)
+  playing = whichPlayersFrom p b
   pns = M.fromList $ zip playing [0,6..]
   tileN p d = pns M.! p + fromEnum d
+
+evaluate :: NNet -> Player -> Board -> M.Map Player (Double,Double)
+evaluate nn p b = let
+  playing = whichPlayersFrom p b
+  everyoneLost = M.fromList $ zip [Red .. Blue]  $ repeat (0,0)
+  nnInputs = mapBoard p b
+  nnOutputs = feedforward nn nnInputs
+  outputPairs = op nnOutputs where
+    op (a:b:r) = (a,b) : op r
+    op _ = []
+  in M.union (M.fromList $ zip playing outputPairs) everyoneLost
 

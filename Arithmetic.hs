@@ -17,6 +17,7 @@ module Arithmetic (
   transformDecoder,
   listDecode,
   modelDecode,
+  randomA,
   byteModel,
   fromBytes,
   base64,
@@ -33,7 +34,7 @@ import Control.Monad.Trans
 import Data.Ratio
 import Data.List (foldl1')
 import Data.Word
-import Debug.Trace
+import System.Random
 
 data Range = Range Rational Rational deriving (Eq,Show)
 
@@ -182,6 +183,9 @@ modelDecode = ma . map prep where
     pp = pa / ps
     in (ps,DecodeNode (Range 0 1) pp (const va) (const vb)) :
       mp r
+
+randomA :: (RandomGen g) => g -> [Range]
+randomA = fromBytes . randoms
 
 byteModel = modelDecode $ zip (repeat 1) [0 :: Word8 .. maxBound]
 fromBytes = map be where
