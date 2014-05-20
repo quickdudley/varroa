@@ -188,8 +188,9 @@ randomA :: (RandomGen g) => g -> [Range]
 randomA = fromBytes . randoms
 
 byteModel = modelDecode $ zip (repeat 1) [0 :: Word8 .. maxBound]
+fromBytes :: [Word8] -> [Range]
 fromBytes = map be where
-  be x = let x' = fromIntegral x in Range (x%256) ((x+1)%256)
+  be x = let x' = fromIntegral x in Range (x'%256) ((x'+1)%256)
 
 decimal = modelDecode $ zip (repeat 1) ['0'..'9']
 fromDecimal = map (df . read . (:[])) where

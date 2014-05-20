@@ -73,3 +73,15 @@ updateENet p bo bt n = let
    ) $ isomorphisms bo
   in foldl1' (.) ufs n
 
+selectMove :: (Monad m) => Double -> NNet -> Player -> Board ->
+  DecodeT m Board
+selectMove s n p b = let
+  playing = whichPlayersFrom p b
+  nextPlayer = (cycle playing) !! 1
+  sf = case length playing of
+    2 -> flip const
+    3 -> \b a -> b*s + a
+  in transformDecoder $ modelDecode $ map (\b' ->
+    (uncurry sf (evaluate n nextPlayer b' M.! p),b')
+   ) $ genMoves p b
+
