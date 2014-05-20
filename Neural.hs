@@ -3,6 +3,7 @@ module Neural (
   Layer,
   feedforward,
   backprop,
+  backpropSome,
   randomNNet
  ) where
 
@@ -42,14 +43,20 @@ error-->Multiply by weights
                             -->Update weights
 -}
 backprop :: Double -> [Double] -> [Double] -> NNet -> NNet
-backprop rate i t n = fst $ backprop' i t n where
+backprop rate i t n = backpropSome rate i (map Just t) n
+
+backpropSome :: Double -> [Double] -> [Maybe Double] -> NNet -> NNet
+backpropSome rate i t n = fst $ backprop' i t n where
   backprop' i t (l:n) = (nw:r,be) where
     -- hs: output of this layer
     hs = feedlayer i l
     -- r: the next layer updated
     -- e: the error of this layer's output
     (r,e) = case n of
-      [] -> ([], zipWith subtract hs t)
+      [] -> ([], zipWith (\o m -> case m of
+        Nothing -> 0
+        Just v -> v - o
+       ) hs t)
       x -> backprop' hs t n
     -- we: Error divided among weights
     we = zipWith (\oe w ->

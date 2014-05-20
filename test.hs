@@ -18,4 +18,3 @@ main = do
           print n
        _ -> uloop $ (backprop 0.15 [0,0] [0] . backprop 0.15 [0,1] [1] . backprop 0.15 [1,1] [0] . backprop 0.15 [1,0] [1]) n
   uloop un
-
