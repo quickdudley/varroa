@@ -19,6 +19,20 @@ import Data.List
 import qualified Data.Map as M
 import System.Random
 
+data Actor m =
+  Teacher NNet |
+  Student NNet |
+  Outsider (Player -> Board -> m Board) (Player -> Board -> m ())
+
+actorNNet :: Actor m -> Maybe NNet
+actorNNet (Teacher n) = Just n
+actorNNet (Student n) = Just n
+actorNNet _ = Nothing
+
+actorUpdate :: Player -> Board -> Board -> Actor m -> Actor m
+actorUpdate p b1 b2 (Student n) = Student $ updateENet p b1 b2 n
+actorUpdate _ _ _ x = x
+
 {-
 Represent the board as a list of doubles for feeding to the neural network.
 Explanation of magic numbers:
