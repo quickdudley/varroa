@@ -48,5 +48,28 @@ evaluate nn p b = let
   outputPairs = op nnOutputs where
     op (a:b:r) = (a,b) : op r
     op _ = []
-  in M.union (M.fromList $ zip playing outputPairs) everyoneLost
+  outputPairs' = case length playing of
+    2 -> map (\(_,v) -> (1,v)) outputPairs
+    3 -> outputPairs
+    1 -> [(1,1)]
+  in M.union (M.fromList $ zip playing outputPairs') everyoneLost
+
+isomorphisms b = nub $ do
+  b' <- [b,flipBoard b]
+  b' : map (flip rotateBoard b') [1..5]
+
+updateENet :: Player -> Board -> Board -> NNet -> NNet
+updateENet p bo bt n = let
+  playing = whichPlayersFrom p bo
+  nextPlayer = (cycle playing) !! 1
+  er = evaluate n nextPlayer bt
+  mo = case length playing of
+    3 -> map Just $ concatMap ((\(a,b) -> [a,b]) . (er M.!)) playing
+    2 -> take 3 $
+      concatMap ((\(_,b) -> [Nothing, Just b]) . (er M.!)) playing ++
+      repeat Nothing
+  ufs = map (\b ->
+    backpropSome 0.1 (mapBoard p b) mo
+   ) $ isomorphisms bo
+  in foldl1' (.) ufs n
 

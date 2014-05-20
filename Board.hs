@@ -6,8 +6,10 @@ module Board (
   step,
   onBoard,
   boardRange,
+  genMoves,
   playersFrom,
   rotateBoard,
+  flipBoard,
   startBoard2,
   startBoard3,
   whichPlayers,
@@ -110,6 +112,12 @@ rotateBoard n bd = (M.fromList . map rotate1 . M.toList) bd where
     4 -> (-1,-1,1,0)
     5 -> (0,-1,1,1)
   rd = turn (6 - n)
+
+flipBoard :: Board -> Board
+flipBoard bd = (M.fromList . map flip1 . M.toList) bd where
+  flip1 (t,(p,d)) = (ft t,(p,fd d))
+  ft (x,y) = (y-x,y)
+  fd = toEnum . (5 -) . fromEnum
 
 startBoard2 = M.union (startp' Blue) (rotateBoard 3 $ startp' Red)
 startBoard3 = foldl1 M.union [
