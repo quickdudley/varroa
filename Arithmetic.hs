@@ -3,7 +3,7 @@ module Arithmetic (
   Range,
   range,
   DecodeTree,
-  DecodeT(..),
+  DecodeT,
   (~*~),
   (~/~),
   (~&~),
@@ -37,6 +37,9 @@ import Data.Word
 import System.Random
 
 data Range = Range Rational Rational deriving (Eq,Show)
+
+--Wishlist: Refactor DecodeTree to "type DecodeTree = DecodeT Identity"
+--without losing listDecode.
 
 data DecodeTree a =
   DecodeNode Range Rational (() -> DecodeTree a) (() -> DecodeTree a) |
@@ -87,6 +90,8 @@ instance Applicative DecodeTree where
   pure = return
   (<*>) = ap
 
+-- Monad laws preserved thanks to the semantics of DecodeLambda. Would be
+-- broken if functions from outside this module were allowed to pattern-match.
 instance Monad DecodeTree where
   return v = DecodeLeaf (Range 0 1) v
   o >>= f = DecodeLambda (Left . f) o
