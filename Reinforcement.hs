@@ -16,6 +16,7 @@ import Board
 import Neural
 
 import Control.Monad.Identity
+import Control.Monad.Morph (hoist)
 import Control.Monad.Writer
 import Data.List
 import Data.Monoid
@@ -32,6 +33,11 @@ actorNNet (Teacher _ n) = Just n
 actorNNet (Student _ n) = Just n
 actorNNet _ = Nothing
 
+actorSolidarity :: Actor m -> Double
+actorSolidarity (Teacher s _) = s
+actorSolidarity (Student s _) = s
+actorSolidarity _ = 0
+
 -- Note: the first argument of this function represents the player
 -- that just moved. The Board arguments are the previous and current
 -- boards.
@@ -42,6 +48,13 @@ actorNotify _ _ _ t@(Teacher _ _) = return t
 actorNotify p b1 b2 o@(Outsider _ nf) = do
   nf p b2
   return o
+
+actorMove :: (Monad m) => Actor m -> Player -> Board -> DecodeT m Board
+actorMove a p b = case actorNNet a of
+  Just nn -> selectMove (actorSolidarity a) nn p b
+  Nothing -> let
+    Outsider mf _ = a
+    in lift $ mf p b
 
 {-
 Represent the board as a list of doubles for feeding to the neural network.
@@ -109,6 +122,7 @@ selectMove s n p b = let
     (uncurry sf (evaluate n nextPlayer b' M.! p),b')
    ) $ genMoves p b
 
+-- I am using a transformer stack, yet I'm manually passing state. Yes I know.
 continueGame :: (Monad m) =>
   Player ->
   Board ->
@@ -121,5 +135,17 @@ continueGame cp b a = do
       lift $ tell $ Endo ([(a,b)]++)
       return b
     else do
-      undefined
+      let ca = (a M.! cp)
+      move <- hoist lift $ actorMove ca cp b
+      a' <- lift $ lift $ liftM M.fromList $ sequence $ map (\(p1,a1) -> do
+        a2 <- actorNotify cp b move a1
+        return (p1,a2)
+       ) $ M.toList a
+      lift $ tell $ Endo ([(a',move)]++)
+      continueGame (playing !! 1) move a'
 
+selfTrain :: NNet -> NNet
+  -> DecodeT
+    (WriterT (Endo [(M.Map Player (Actor Identity),Board)]) Identity)
+    Board
+selfTrain = undefined
