@@ -92,7 +92,7 @@ instance Monad DecodeTree where
   o >>= f = DecodeLambda (Left . f) o
 
 instance (Functor m) => Functor (DecodeT m) where
-  fmap f t = undefined
+  fmap f t = DecodeLambdaT (Right . f) t
 
 instance (Functor m, Monad m) => Applicative (DecodeT m) where
   pure = return
@@ -102,17 +102,24 @@ instance (Monad m) => Monad (DecodeT m) where
   return = DecodeLeafT (Range 0 1)
   o >>= f = DecodeLambdaT (Left . \i -> return (f i)) o
 
-instance (MonadPlus m) => MonadPlus (DecodeT m) where
-  mzero       = undefined
-  m `mplus` n = undefined
+-- MonadPlus is the one instance I can't figure out, but I think I can make
+-- do without it for now. Any future contributor is welcome to have a try.
 
 instance MonadTrans DecodeT where
-  lift m = undefined
+  lift m = DecodeLambdaT (Left . \_ -> liftM return m) (return ())
 
 instance (MonadIO m) => MonadIO (DecodeT m) where
   liftIO = lift . liftIO
 
-transformDecoder dt = undefined
+transformDecoder :: Monad m => DecodeTree a -> DecodeT m a
+transformDecoder (DecodeLeaf n v) = DecodeLeafT n v
+transformDecoder (DecodeNode n s l r) = DecodeNodeT n s 
+  (transformDecoder (l ())) (transformDecoder (r ()))
+transformDecoder (DecodeLambda l tr) = DecodeLambdaT
+  (\i -> case l i of
+      Left v -> (Left . return . transformDecoder) v
+      Right v -> Right v)
+  $ transformDecoder tr
 
 decodeStep :: DecodeTree a -> Range -> DecodeTree a
 decodeStep (DecodeLeaf n v) t = DecodeLeaf (n ~*~ t) v
@@ -147,7 +154,9 @@ runDecode :: DecodeTree a -> [Range] -> a
 runDecode t rs = let (_,v) = runDecode' False t rs in v
 
 runDecode' :: Bool -> DecodeTree a -> [Range] -> ([Range],a)
-runDecode' _ (DecodeLeaf w v) r = (w:r,v)
+runDecode' _ (DecodeLeaf w v) r = let
+  r' = if w == Range 0 1 then r else w:r
+  in (r',v)
 runDecode' f (DecodeLambda l t) r = let (r',t') = runDecode' f t r in case l t' of
   Left v -> runDecode' f v r'
   Right v -> (r',v)
@@ -168,7 +177,9 @@ runDecode' True t@(DecodeNode n s l r) [] = ([],head $ leafList) where
 runDecode' f x (r1:rs) = runDecode' f (decodeStep x r1) rs
 
 runDecodeT' :: Monad m => DecodeT m a -> [Range] -> m ([Range],a)
-runDecodeT' (DecodeLeafT w v) r = return (w:r,v)
+runDecodeT' (DecodeLeafT w v) r = let
+  r' = if w == Range 0 1 then r else w:r
+  in return (r',v)
 runDecodeT' (DecodeLambdaT l t) r = do
   ~(r',t') <- runDecodeT' t r
   case l t' of
