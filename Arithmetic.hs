@@ -31,6 +31,7 @@ module Arithmetic (
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans
+import Control.Monad.Morph
 import Data.Ratio
 import Data.List (foldl1')
 import Data.Word
@@ -108,6 +109,9 @@ instance (MonadPlus m) => MonadPlus (DecodeT m) where
 
 instance MonadTrans DecodeT where
   lift m = DecodeT $ \r -> m >>= \a -> return (r,a)
+
+instance MFunctor DecodeT where
+  hoist f (DecodeT s) = DecodeT (\r -> f (s r))
 
 instance (MonadIO m) => MonadIO (DecodeT m) where
   liftIO = lift . liftIO
