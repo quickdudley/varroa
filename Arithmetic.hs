@@ -118,7 +118,7 @@ instance MFunctor DecodeT where
   hoist _ (DecodeLeafT r a) = DecodeLeafT r a
   hoist f (DecodeNodeT n s l r) = DecodeNodeT n s (hoist f l) (hoist f r)
   hoist f (DecodeLambdaT l t) = DecodeLambdaT (\v -> case l v of
-    Left x -> Left $ f undefined
+    Left x -> Left $ f $ liftM (hoist f) x
     Right x -> Right x
    ) (hoist f t)
 
