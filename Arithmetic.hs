@@ -31,6 +31,7 @@ module Arithmetic (
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans
+import Control.Monad.Morph
 import Data.Ratio
 import Data.List (foldl1')
 import Data.Word
@@ -112,6 +113,14 @@ instance (Monad m) => Monad (DecodeT m) where
 
 instance MonadTrans DecodeT where
   lift m = DecodeLambdaT (Left . \_ -> liftM return m) (return ())
+
+instance MFunctor DecodeT where
+  hoist _ (DecodeLeafT r a) = DecodeLeafT r a
+  hoist f (DecodeNodeT n s l r) = DecodeNodeT n s (hoist f l) (hoist f r)
+  hoist f (DecodeLambdaT l t) = DecodeLambdaT (\v -> case l v of
+    Left x -> Left $ f undefined
+    Right x -> Right x
+   ) (hoist f t)
 
 instance (MonadIO m) => MonadIO (DecodeT m) where
   liftIO = lift . liftIO

@@ -15,23 +15,33 @@ import Arithmetic (
 import Board
 import Neural
 
+import Control.Monad.Identity
+import Control.Monad.Writer
 import Data.List
+import Data.Monoid
 import qualified Data.Map as M
 import System.Random
 
 data Actor m =
-  Teacher NNet |
-  Student NNet |
+  Teacher Double NNet |
+  Student Double NNet |
   Outsider (Player -> Board -> m Board) (Player -> Board -> m ())
 
 actorNNet :: Actor m -> Maybe NNet
-actorNNet (Teacher n) = Just n
-actorNNet (Student n) = Just n
+actorNNet (Teacher _ n) = Just n
+actorNNet (Student _ n) = Just n
 actorNNet _ = Nothing
 
-actorUpdate :: Player -> Board -> Board -> Actor m -> Actor m
-actorUpdate p b1 b2 (Student n) = Student $ updateENet p b1 b2 n
-actorUpdate _ _ _ x = x
+-- Note: the first argument of this function represents the player
+-- that just moved. The Board arguments are the previous and current
+-- boards.
+actorNotify :: (Monad m) =>
+  Player -> Board -> Board -> Actor m -> m (Actor m)
+actorNotify p b1 b2 (Student c n) = return $ Student c $ updateENet p b1 b2 n
+actorNotify _ _ _ t@(Teacher _ _) = return t
+actorNotify p b1 b2 o@(Outsider _ nf) = do
+  nf p b2
+  return o
 
 {-
 Represent the board as a list of doubles for feeding to the neural network.
@@ -98,4 +108,18 @@ selectMove s n p b = let
   in transformDecoder $ modelDecode $ map (\b' ->
     (uncurry sf (evaluate n nextPlayer b' M.! p),b')
    ) $ genMoves p b
+
+continueGame :: (Monad m) =>
+  Player ->
+  Board ->
+  M.Map Player (Actor m) ->
+  DecodeT (WriterT (Endo [(M.Map Player (Actor m),Board)]) m) Board
+continueGame cp b a = do
+  let playing = whichPlayersFrom cp b
+  if null $ tail playing
+    then do
+      lift $ tell $ Endo ([(a,b)]++)
+      return b
+    else do
+      undefined
 
