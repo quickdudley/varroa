@@ -148,4 +148,16 @@ selfTrain :: NNet -> NNet
   -> DecodeT
     (WriterT (Endo [(M.Map Player (Actor Identity),Board)]) Identity)
     Board
-selfTrain = undefined
+selfTrain t s = do
+  ~(start,players) <- transformDecoder $ modelDecode
+    [(1,(startBoard2,[Blue,Red])),(1,(startBoard3,[Blue,Green,Red]))]
+  student <- transformDecoder $ modelDecode $
+    map (\x -> (1,x)) players
+  let
+    teacherA = Teacher 0.5 t
+    studentA = Student 0.5 s
+    actors = M.insert student studentA $ M.fromList $ map
+      (\p -> (p,teacherA))
+      players
+  continueGame Blue start actors
+
