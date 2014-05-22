@@ -1,5 +1,7 @@
 module Reinforcement (
+  Actor,
   isStudent,
+  actorNNet,
   selfTrain
  ) where
 

@@ -37,7 +37,7 @@ import Data.List (foldl1')
 import Data.Word
 import System.Random
 
-data Range = Range Rational Rational deriving (Eq,Show)
+data Range = Range !Rational !Rational deriving (Eq,Show)
 
 --Wishlist: Refactor DecodeTree to "type DecodeTree = DecodeT Identity"
 --without losing listDecode.
@@ -224,7 +224,7 @@ finDecode (DecodeLambda l t) = case l (finDecode t) of
 
 modelDecode :: Real p => [(p,v)] -> DecodeTree v
 modelDecode = ma . map prep where
-  prep (p,v) = (toRational p, return v)
+  prep ~(p,v) = (toRational p, return v)
   ma [] = error "Cannot build model from empty list!"
   ma [(_,x)] = x
   ma l = ma (mp l)
