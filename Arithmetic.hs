@@ -223,8 +223,8 @@ finDecode (DecodeLambda l t) = case l (finDecode t) of
   Right v -> v
 
 modelDecode :: Real p => [(p,v)] -> DecodeTree v
-modelDecode = ma . map prep where
-  prep ~(p,v) = (toRational p, return v)
+modelDecode = ma . map prep . filter ((> 0) . fst) where
+  prep (p,v) = (toRational p, return v)
   ma [] = error "Cannot build model from empty list!"
   ma [(_,x)] = x
   ma l = ma (mp l)
