@@ -1,4 +1,6 @@
 module Reinforcement (
+  isStudent,
+  selfTrain
  ) where
 
 import Arithmetic (
@@ -37,6 +39,9 @@ actorSolidarity :: Actor m -> Double
 actorSolidarity (Teacher s _) = s
 actorSolidarity (Student s _) = s
 actorSolidarity _ = 0
+
+isStudent (Student _ _) = True
+isStudent _ = False
 
 -- Note: the first argument of this function represents the player
 -- that just moved. The Board arguments are the previous and current
@@ -159,5 +164,6 @@ selfTrain t s = do
     actors = M.insert student studentA $ M.fromList $ map
       (\p -> (p,teacherA))
       players
+  lift $ tell $ Endo ([(actors,start)]++)
   continueGame Blue start actors
 
