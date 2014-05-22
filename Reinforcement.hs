@@ -133,8 +133,10 @@ continueGame :: (Monad m) =>
   Board ->
   M.Map Player (Actor m) ->
   DecodeT (WriterT (Endo [(M.Map Player (Actor m),Board)]) m) Board
-continueGame cp b a = do
-  let playing = whichPlayersFrom cp b
+continueGame cp' b a = do
+  let
+    playing = whichPlayersFrom cp' b
+    cp = head playing
   if null $ tail playing
     then do
       lift $ tell $ Endo ([(a,b)]++)
