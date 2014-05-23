@@ -61,7 +61,7 @@ commentary vls ((_,b'):r@((p,b):_)) = do
   putStr "."
   hFlush stdout
   let elim = whichPlayers b' \\ whichPlayers b
-  sequence $ map (\e -> putStrLn $ "\n" ++ show e ++ "Has lost.") elim
+  sequence $ map (\e -> putStrLn $ "\n" ++ show e ++ " has lost.") elim
   vls' `seq` commentary vls' r
 
 updateVLS p vls = maybe vls (\n -> vls {student = n})
