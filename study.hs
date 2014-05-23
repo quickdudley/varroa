@@ -35,8 +35,12 @@ initialVLS g = let
     lead = 0
    }
 
-train1game vls = do
-  let td = selfTrain (teacher vls) (student vls)
+train1game vls' = do
+  let
+    vls = if lead vls' < 5
+      then vls'
+      else vls' {teacher = student vls', lead = 0}
+    td = selfTrain (teacher vls) (student vls)
   rs <- liftM randomA newStdGen
   let
     gr = appEndo (runIdentity $ execWriterT $ runDecodeT td rs) []
@@ -49,7 +53,8 @@ commentary vls [] = return vls
 commentary vls [(p,b)] = do
   let w = head $ whichPlayers b
   putStrLn $ "\n" ++ show w ++ "wins."
-  return vls
+  let sp = head $ M.keys $ M.filter isStudent p
+  return $ vls {lead = (if sp == w then (+) else (-)) (lead vls) 1}
 commentary vls ((_,b'):r@((p,b):_)) = do
   let vls' = updateVLS p vls
   saveVLS vls' "brain"
@@ -57,7 +62,7 @@ commentary vls ((_,b'):r@((p,b):_)) = do
   hFlush stdout
   let elim = whichPlayers b' \\ whichPlayers b
   sequence $ map (\e -> putStrLn $ "\n" ++ show e ++ "Has lost.") elim
-  commentary vls' r
+  vls' `seq` commentary vls' r
 
 updateVLS p vls = maybe vls (\n -> vls {student = n})
   (actorNNet $ head $ filter isStudent $ M.elems p)

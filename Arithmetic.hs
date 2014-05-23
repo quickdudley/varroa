@@ -43,13 +43,13 @@ data Range = Range !Rational !Rational deriving (Eq,Show)
 --without losing listDecode.
 
 data DecodeTree a =
-  DecodeNode Range Rational (() -> DecodeTree a) (() -> DecodeTree a) |
-  DecodeLeaf Range a |
+  DecodeNode !Range !Rational (() -> DecodeTree a) (() -> DecodeTree a) |
+  DecodeLeaf !Range a |
   forall b. DecodeLambda (b -> Either (DecodeTree a) a) (DecodeTree b)
 
 data DecodeT m a =
-  DecodeNodeT Range Rational (DecodeT m a) (DecodeT m a) |
-  DecodeLeafT Range a |
+  DecodeNodeT !Range !Rational (DecodeT m a) (DecodeT m a) |
+  DecodeLeafT !Range a |
   forall b. DecodeLambdaT (b -> Either (m (DecodeT m a)) a) (DecodeT m b)
 
 range a b = if a <= b then Range a b else Range b a
