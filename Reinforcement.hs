@@ -109,7 +109,7 @@ updateENet p bo bt n = let
   er = evaluate n nextPlayer bt
   mo = case length playing of
     3 -> map Just $ concatMap ((\(a,b) -> [a,b]) . (er M.!)) playing
-    2 -> take 3 $
+    2 -> take 6 $
       concatMap ((\(_,b) -> [Nothing, Just b]) . (er M.!)) playing ++
       repeat Nothing
   ufs = map (\b ->
