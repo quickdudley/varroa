@@ -25,7 +25,7 @@ main = do
   vls <- if c
     then liftM read (readFile "brain")
     else liftM initialVLS getStdGen
-  foldr1 (>=>) [train1game] vls
+  foldr1 (>=>) (repeat train1game) vls
 
 initialVLS g = let
   n = randomNNet g [1638,60,6]
@@ -43,7 +43,7 @@ train1game vls' = do
     td = selfTrain (teacher vls) (student vls)
   rs <- liftM randomA newStdGen
   let
-    gr = take 5 $ appEndo (runIdentity $ execWriterT $ runDecodeT td rs) []
+    gr = appEndo (runIdentity $ execWriterT $ runDecodeT td rs) []
     (p,_) = head gr
     sp = head $ M.keys $ M.filter isStudent p
   putStrLn ((show $ M.size p) ++ " player game. " ++ show sp ++ " is student.")
