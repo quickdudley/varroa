@@ -3,7 +3,7 @@ module Arithmetic (
   Range,
   range,
   DecodeTree,
-  DecodeT,
+  DecodeT(..),
   (~*~),
   (~/~),
   (~&~),
@@ -31,26 +31,19 @@ module Arithmetic (
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans
-import Control.Monad.Morph
 import Data.Ratio
 import Data.List (foldl1')
 import Data.Word
 import System.Random
 
-data Range = Range !Rational !Rational deriving (Eq,Show)
-
---Wishlist: Refactor DecodeTree to "type DecodeTree = DecodeT Identity"
---without losing listDecode.
+data Range = Range Rational Rational deriving (Eq,Show)
 
 data DecodeTree a =
-  DecodeNode !Range !Rational (() -> DecodeTree a) (() -> DecodeTree a) |
-  DecodeLeaf !Range a |
+  DecodeNode Range Rational (() -> DecodeTree a) (() -> DecodeTree a) |
+  DecodeLeaf Range a |
   forall b. DecodeLambda (b -> Either (DecodeTree a) a) (DecodeTree b)
 
-data DecodeT m a =
-  DecodeNodeT !Range !Rational (DecodeT m a) (DecodeT m a) |
-  DecodeLeafT !Range a |
-  forall b. DecodeLambdaT (b -> Either (m (DecodeT m a)) a) (DecodeT m b)
+newtype DecodeT m a = DecodeT {runDecodeT' :: [Range] -> m ([Range],a)}
 
 range a b = if a <= b then Range a b else Range b a
 
@@ -91,49 +84,35 @@ instance Applicative DecodeTree where
   pure = return
   (<*>) = ap
 
--- Monad laws preserved thanks to the semantics of DecodeLambda. Would be
--- broken if functions from outside this module were allowed to pattern-match.
 instance Monad DecodeTree where
   return v = DecodeLeaf (Range 0 1) v
   o >>= f = DecodeLambda (Left . f) o
 
 instance (Functor m) => Functor (DecodeT m) where
-  fmap f t = DecodeLambdaT (Right . f) t
+  fmap f t = DecodeT $ \r ->
+    fmap (\ ~(r,a) -> (r,f a)) $ runDecodeT' t r
 
 instance (Functor m, Monad m) => Applicative (DecodeT m) where
   pure = return
   (<*>) = ap
 
 instance (Monad m) => Monad (DecodeT m) where
-  return = DecodeLeafT (Range 0 1)
-  o >>= f = DecodeLambdaT (Left . \i -> return (f i)) o
+  return v = DecodeT $ \r -> return (r,v)
+  (DecodeT o) >>= f = DecodeT $ \r -> do
+    ~(r',a) <- o r
+    runDecodeT' (f a) r'
 
--- MonadPlus is the one instance I can't figure out, but I think I can make
--- do without it for now. Any future contributor is welcome to have a try.
+instance (MonadPlus m) => MonadPlus (DecodeT m) where
+  mzero       = DecodeT $ \_ -> mzero
+  m `mplus` n = DecodeT $ \r -> runDecodeT' m r `mplus` runDecodeT' n r
 
 instance MonadTrans DecodeT where
-  lift m = DecodeLambdaT (Left . \_ -> liftM return m) (return ())
-
-instance MFunctor DecodeT where
-  hoist _ (DecodeLeafT r a) = DecodeLeafT r a
-  hoist f (DecodeNodeT n s l r) = DecodeNodeT n s (hoist f l) (hoist f r)
-  hoist f (DecodeLambdaT l t) = DecodeLambdaT (\v -> case l v of
-    Left x -> Left $ f $ liftM (hoist f) x
-    Right x -> Right x
-   ) (hoist f t)
+  lift m = DecodeT $ \r -> m >>= \a -> return (r,a)
 
 instance (MonadIO m) => MonadIO (DecodeT m) where
   liftIO = lift . liftIO
 
-transformDecoder :: Monad m => DecodeTree a -> DecodeT m a
-transformDecoder (DecodeLeaf n v) = DecodeLeafT n v
-transformDecoder (DecodeNode n s l r) = DecodeNodeT n s 
-  (transformDecoder (l ())) (transformDecoder (r ()))
-transformDecoder (DecodeLambda l tr) = DecodeLambdaT
-  (\i -> case l i of
-      Left v -> (Left . return . transformDecoder) v
-      Right v -> Right v)
-  $ transformDecoder tr
+transformDecoder dt = DecodeT (\r -> return $ runDecode' False dt r)
 
 decodeStep :: DecodeTree a -> Range -> DecodeTree a
 decodeStep (DecodeLeaf n v) t = DecodeLeaf (n ~*~ t) v
@@ -148,29 +127,14 @@ decodeStep (DecodeNode n s l r) t = let
     (False,True) -> decodeStep (r ()) (rr ~/~ i)
     (False,False) -> error "Unacceptable range appeared"
 
-decodeStepT :: DecodeT m a -> Range -> DecodeT m a
-decodeStepT (DecodeLeafT n v) t = DecodeLeafT (n ~*~ t) v
-decodeStepT (DecodeLambdaT l tr) t = DecodeLambdaT l (decodeStepT tr t)
-decodeStepT (DecodeNodeT n s l r) t = let
-  i = n ~*~ t
-  rl = n ~*~ range 0 s
-  rr = n ~*~ range s 1
-  in case (i ~&~ rl, i ~&~ rr) of
-    (True,True) -> DecodeNodeT i s l r
-    (True,False) -> decodeStepT l (rl ~/~ i)
-    (False,True) -> decodeStepT r (rr ~/~ i)
-    (False,False) -> error "Unacceptable range appeared"
-
-runDecodeT :: (Monad m) => DecodeT m a -> [Range] -> m a
-runDecodeT t r = liftM snd $ runDecodeT' t r
+runDecodeT :: (Functor m) => DecodeT m a -> [Range] -> m a
+runDecodeT t r = fmap snd $ runDecodeT' t r
 
 runDecode :: DecodeTree a -> [Range] -> a
 runDecode t rs = let (_,v) = runDecode' False t rs in v
 
 runDecode' :: Bool -> DecodeTree a -> [Range] -> ([Range],a)
-runDecode' _ (DecodeLeaf w v) r = let
-  r' = if w == Range 0 1 then r else w:r
-  in (r',v)
+runDecode' _ (DecodeLeaf w v) r = (w:r,v)
 runDecode' f (DecodeLambda l t) r = let (r',t') = runDecode' f t r in case l t' of
   Left v -> runDecode' f v r'
   Right v -> (r',v)
@@ -190,22 +154,6 @@ runDecode' True t@(DecodeNode n s l r) [] = ([],head $ leafList) where
     ll (decodeStep (r ()) (Range s 1 ~/~ Range s nh))
 runDecode' f x (r1:rs) = runDecode' f (decodeStep x r1) rs
 
-runDecodeT' :: Monad m => DecodeT m a -> [Range] -> m ([Range],a)
-runDecodeT' (DecodeLeafT w v) r = let
-  r' = if w == Range 0 1 then r else w:r
-  in return (r',v)
-runDecodeT' (DecodeLambdaT l t) r = do
-  ~(r',t') <- runDecodeT' t r
-  case l t' of
-    Left v -> do
-      v' <- v
-      runDecodeT' v' r'
-    Right v -> return (r',v)
-runDecodeT' t@(DecodeNodeT _ _ _ _) [] = do
-  r <- runDecodeT t [Range 0 0]
-  return ([],r)
-runDecodeT' x (r1:rs) = runDecodeT' (decodeStepT x r1) rs
-
 listDecode :: DecodeTree a -> [Range] -> [a]
 listDecode t rs = let
   (r,v) = runDecode' False t rs
@@ -223,7 +171,7 @@ finDecode (DecodeLambda l t) = case l (finDecode t) of
   Right v -> v
 
 modelDecode :: Real p => [(p,v)] -> DecodeTree v
-modelDecode = (ma . map prep . filter ((> 0) . fst)) where
+modelDecode = ma . map prep where
   prep (p,v) = (toRational p, return v)
   ma [] = error "Cannot build model from empty list!"
   ma [(_,x)] = x
