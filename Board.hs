@@ -89,9 +89,7 @@ startp' :: Player -> Board
 startp' player = M.fromList $ do
   y <- [-5,-4]
   x <- [-5 .. -3] ++ [y+3..y+5]
-  return ((x,y), if x <= (-3)
-    then (player,NE)
-    else (player,NW))
+  return ((x,y), (player, if x <= (-3) then NE else NW))
 
 {-
 The matrix representing a 1/6 turn in this coordinate system is:
