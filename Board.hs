@@ -16,6 +16,7 @@ module Board (
   whichPlayersFrom
  ) where
 
+import Data.Ix
 import Control.Monad (guard)
 import Data.List (nub,intersect)
 import qualified Data.Map as M
@@ -26,7 +27,7 @@ data Player = Red | Green | Blue
   deriving (Eq,Enum,Bounded,Show,Ord)
 
 data Direction = NE | EE | SE | SW | WW | NW
-  deriving (Eq,Enum,Bounded,Show)
+  deriving (Eq,Enum,Ord,Ix,Bounded,Show)
 
 data Step = SL | SF | SR deriving (Enum,Show)
 
