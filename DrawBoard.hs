@@ -5,7 +5,7 @@ import Board
 import Data.Int
 import Data.Function (on)
 import Data.List
-import Data.Map (lookup)
+import qualified Data.Map as M
 import Data.Array
 import Graphics.Rendering.Cairo
 
@@ -21,11 +21,11 @@ renderBoard w h s b = do
   setLineCap LineCapRound
   mapM_ (\p -> do
     let
-      c = hex2grid p
+      c = uncurry hex2grid p
       cpts = map ($ c) corners
     sequence_ $ zipWith goPoint (moveTo : repeat lineTo) cpts
     strokePreserve
-    case lookup p b of
+    case M.lookup p b of
       Nothing -> return ()
       Just (player,direction) -> do
         paint
@@ -41,11 +41,11 @@ renderBoard w h s b = do
    ) boardRange
   return ()
  where
-  (sx,xy) = minimumBy (compare `on` fst) [
+  (sx,sy) = minimumBy (compare `on` fst) [
     let x = w / 22 in (x, x / (sqrt 0.75 * 2)),
     let y = h / 34 in (y * (sqrt 0.75 * 2), y)
    ]
-  goPoint f (x,y) = f (sx * x) (sy * y)
+  goPoint f (x,y) = f (sx * fromIntegral x) (sy * fromIntegral y)
 
 cnr2 = array (NE,NW) $ zip [NE .. NW] $ zip corners $ tail (cycle corners)
 
@@ -58,5 +58,5 @@ corners = [
   \(x,y) -> (x-1,y-1)
  ]
 
-hex2grid x y = (fromIntegral (x - 2*y + 10), fromIntegral (19 - 3*y))
+hex2grid x y = (x - 2*y + 10, 19 - 3*y)
 
