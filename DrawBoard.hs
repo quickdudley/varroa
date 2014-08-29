@@ -1,4 +1,7 @@
-module DrawBoard () where
+module DrawBoard (
+  PlayState(..),
+  renderBoard
+ ) where
 
 import Board
 
