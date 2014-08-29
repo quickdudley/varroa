@@ -23,25 +23,25 @@ renderBoard w h s b = do
     let
       c = uncurry hex2grid p
       cpts = map ($ c) corners
-    sequence_ $ zipWith goPoint (moveTo : repeat lineTo) cpts
-    strokePreserve
+    sequence_ $ zipWith goPoint (moveTo : repeat lineTo) (cpts ++ [head cpts])
     case M.lookup p b of
-      Nothing -> return ()
+      Nothing -> stroke
       Just (player,direction) -> do
-        paint
+        strokePreserve
+        fill
         let (pf1,pf2) = cnr2 ! direction
-        sequence_ $ zipWith goPoint (moveTo : repeat lineTo) [c,pf1 c, pf2 c]
         case player of
           Red -> setSourceRGB 1 0 0
           Green -> setSourceRGB 0 1 0
           Blue -> setSourceRGB 0 0 1
-        paint
+        sequence_ $ zipWith goPoint (moveTo : repeat lineTo) [c,pf1 c, pf2 c, c]
+        fill
         setSourceRGB 0 0 0
     return ()
    ) boardRange
   return ()
  where
-  (sx,sy) = minimumBy (compare `on` fst) [
+  (sx,sy) = minimum [
     let x = w / 22 in (x, x / (sqrt 0.75 * 2)),
     let y = h / 34 in (y * (sqrt 0.75 * 2), y)
    ]
@@ -58,5 +58,5 @@ corners = [
   \(x,y) -> (x-1,y-1)
  ]
 
-hex2grid x y = (x - 2*y + 10, 19 - 3*y)
+hex2grid x y = (2 * x - y + 11, 17 - 3 * y)
 
