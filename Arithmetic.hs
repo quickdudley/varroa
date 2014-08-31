@@ -40,7 +40,7 @@ import System.Random
 data Range = Range Rational Rational deriving (Eq,Show)
 
 data DecodeTree a =
-  DecodeNode Range Rational (() -> DecodeTree a) (() -> DecodeTree a) |
+  DecodeNode Range Rational (DecodeTree a) (DecodeTree a) |
   DecodeLeaf Range a
 
 type DecodeT m a = StateT [Range] m a
@@ -88,8 +88,8 @@ decodeStep (DecodeNode n s l r) t = let
   rr = n ~*~ range s 1
   in case (i ~&~ rl, i ~&~ rr) of
     (True,True) -> DecodeNode i s l r
-    (True,False) -> decodeStep (l ()) (rl ~/~ i)
-    (False,True) -> decodeStep (r ()) (rr ~/~ i)
+    (True,False) -> decodeStep l (rl ~/~ i)
+    (False,True) -> decodeStep r (rr ~/~ i)
     (False,False) -> error "Unacceptable range appeared"
 
 runDecode :: DecodeTree a -> [Range] -> a
@@ -105,8 +105,8 @@ runDecode' True t@(DecodeNode n s l r) [] = (head $ leafList,[]) where
   ll (DecodeLeaf (Range 0 _) v) = [v]
   ll (DecodeLeaf _ _) = []
   ll (DecodeNode (Range nl nh) s l r) =
-    ll (decodeStep (l ()) (Range 0 s ~/~ Range nl s)) ++
-    ll (decodeStep (r ()) (Range s 1 ~/~ Range s nh))
+    ll (decodeStep l (Range 0 s ~/~ Range nl s)) ++
+    ll (decodeStep r (Range s 1 ~/~ Range s nh))
 runDecode' f x (r1:rs) = runDecode' f (decodeStep x r1) rs
 
 listDecode :: DecodeTree a -> [Range] -> [a]
@@ -119,7 +119,7 @@ listDecode t rs = let
     _ -> v : listDecode t r
 
 finDecode :: DecodeTree a -> a
-finDecode (DecodeNode _ _ l _) = finDecode (l ())
+finDecode (DecodeNode _ _ l _) = finDecode l
 finDecode (DecodeLeaf _ v) = v
 
 modelDecode :: Real p => [(p,v)] -> DecodeTree v
@@ -133,7 +133,7 @@ modelDecode = ma . map prep where
   mp ((pa,va):(pb,vb):r) = let
     ps = pa + pb
     pp = pa / ps
-    in (ps,DecodeNode (Range 0 1) pp (const va) (const vb)) :
+    in (ps,DecodeNode (Range 0 1) pp va vb) :
       mp r
 
 randomA :: (RandomGen g) => g -> [Range]
