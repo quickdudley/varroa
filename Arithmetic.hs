@@ -1,4 +1,3 @@
-{-# LANGUAGE ExistentialQuantification #-}
 module Arithmetic (
   Range,
   range,
@@ -30,6 +29,7 @@ module Arithmetic (
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.State
 import Control.Monad.Trans
 import Control.Monad.Morph
 import Data.Ratio
@@ -41,10 +41,10 @@ data Range = Range Rational Rational deriving (Eq,Show)
 
 data DecodeTree a =
   DecodeNode Range Rational (() -> DecodeTree a) (() -> DecodeTree a) |
-  DecodeLeaf Range a |
-  forall b. DecodeLambda (b -> Either (DecodeTree a) a) (DecodeTree b)
+  DecodeLeaf Range a
 
-newtype DecodeT m a = DecodeT {runDecodeT' :: [Range] -> m ([Range],a)}
+type DecodeT m a = StateT [Range] m a
+runDecodeT = runStateT
 
 range a b = if a <= b then Range a b else Range b a
 
@@ -78,49 +78,10 @@ infixl 6 ~<~
 infixl 6 ~^~
 ~(Range lo ho) ~^~ ~(Range li hi) = lo <= li && ho >= hi
 
-instance Functor DecodeTree where
-  fmap f t = DecodeLambda (Right . f) t
-
-instance Applicative DecodeTree where
-  pure = return
-  (<*>) = ap
-
-instance Monad DecodeTree where
-  return v = DecodeLeaf (Range 0 1) v
-  o >>= f = DecodeLambda (Left . f) o
-
-instance (Functor m) => Functor (DecodeT m) where
-  fmap f t = DecodeT $ \r ->
-    fmap (\ ~(r,a) -> (r,f a)) $ runDecodeT' t r
-
-instance (Functor m, Monad m) => Applicative (DecodeT m) where
-  pure = return
-  (<*>) = ap
-
-instance (Monad m) => Monad (DecodeT m) where
-  return v = DecodeT $ \r -> return (r,v)
-  (DecodeT o) >>= f = DecodeT $ \r -> do
-    ~(r',a) <- o r
-    runDecodeT' (f a) r'
-
-instance (MonadPlus m) => MonadPlus (DecodeT m) where
-  mzero       = DecodeT $ \_ -> mzero
-  m `mplus` n = DecodeT $ \r -> runDecodeT' m r `mplus` runDecodeT' n r
-
-instance MonadTrans DecodeT where
-  lift m = DecodeT $ \r -> m >>= \a -> return (r,a)
-
-instance MFunctor DecodeT where
-  hoist f (DecodeT s) = DecodeT (\r -> f (s r))
-
-instance (MonadIO m) => MonadIO (DecodeT m) where
-  liftIO = lift . liftIO
-
-transformDecoder dt = DecodeT (\r -> return $ runDecode' False dt r)
+transformDecoder dt = StateT (\r -> return $ runDecode' False dt r)
 
 decodeStep :: DecodeTree a -> Range -> DecodeTree a
 decodeStep (DecodeLeaf n v) t = DecodeLeaf (n ~*~ t) v
-decodeStep (DecodeLambda l tr) t = DecodeLambda l (decodeStep tr t)
 decodeStep (DecodeNode n s l r) t = let
   i = n ~*~ t
   rl = n ~*~ range 0 s
@@ -131,28 +92,18 @@ decodeStep (DecodeNode n s l r) t = let
     (False,True) -> decodeStep (r ()) (rr ~/~ i)
     (False,False) -> error "Unacceptable range appeared"
 
-runDecodeT :: (Functor m) => DecodeT m a -> [Range] -> m a
-runDecodeT t r = fmap snd $ runDecodeT' t r
-
 runDecode :: DecodeTree a -> [Range] -> a
-runDecode t rs = let (_,v) = runDecode' False t rs in v
+runDecode t rs = let (v,_) = runDecode' False t rs in v
 
-runDecode' :: Bool -> DecodeTree a -> [Range] -> ([Range],a)
-runDecode' _ (DecodeLeaf w v) r = (w:r,v)
-runDecode' f (DecodeLambda l t) r = let (r',t') = runDecode' f t r in case l t' of
-  Left v -> runDecode' f v r'
-  Right v -> (r',v)
+runDecode' :: Bool -> DecodeTree a -> [Range] -> (a,[Range])
+runDecode' _ (DecodeLeaf w v) r = (v,w:r)
 runDecode' False t@(DecodeNode _ _ _ _) [] =
-  ([],runDecode t [Range 0 0])
-runDecode' True t@(DecodeNode n s l r) [] = ([],head $ leafList) where
+  (runDecode t [Range 0 0],[])
+runDecode' True t@(DecodeNode n s l r) [] = (head $ leafList,[]) where
   leafList = ll t
   ll :: DecodeTree a -> [a]
   ll (DecodeLeaf (Range 0 _) v) = [v]
   ll (DecodeLeaf _ _) = []
-  ll (DecodeLambda f t) = concatMap be $ ll t where
-    be x = case f x of
-      Right v -> [v]
-      Left v -> ll v
   ll (DecodeNode (Range nl nh) s l r) =
     ll (decodeStep (l ()) (Range 0 s ~/~ Range nl s)) ++
     ll (decodeStep (r ()) (Range s 1 ~/~ Range s nh))
@@ -160,8 +111,8 @@ runDecode' f x (r1:rs) = runDecode' f (decodeStep x r1) rs
 
 listDecode :: DecodeTree a -> [Range] -> [a]
 listDecode t rs = let
-  (r,v) = runDecode' False t rs
-  (_,v') = runDecode' True t rs
+  (v,r) = runDecode' False t rs
+  (v',_) = runDecode' True t rs
   in case r of
     [Range 0 _] -> [v']
     [] -> [v']
@@ -170,13 +121,10 @@ listDecode t rs = let
 finDecode :: DecodeTree a -> a
 finDecode (DecodeNode _ _ l _) = finDecode (l ())
 finDecode (DecodeLeaf _ v) = v
-finDecode (DecodeLambda l t) = case l (finDecode t) of
-  Left t -> finDecode t
-  Right v -> v
 
 modelDecode :: Real p => [(p,v)] -> DecodeTree v
 modelDecode = ma . map prep where
-  prep (p,v) = (toRational p, return v)
+  prep (p,v) = (toRational p, DecodeLeaf (Range 0 1) v)
   ma [] = error "Cannot build model from empty list!"
   ma [(_,x)] = x
   ma l = ma (mp l)
