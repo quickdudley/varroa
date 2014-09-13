@@ -27,7 +27,7 @@ data Player = Red | Green | Blue
   deriving (Eq,Enum,Bounded,Show,Ord)
 
 data Direction = NE | EE | SE | SW | WW | NW
-  deriving (Eq,Enum,Ord,Ix,Bounded,Show)
+  deriving (Eq,Ord,Bounded,Show)
 
 data Step = SL | SF | SR deriving (Enum,Show)
 
@@ -35,6 +35,43 @@ type Board = M.Map (Int8,Int8) (Player,Direction)
 
 turn :: Int -> Direction -> Direction
 turn n = toEnum . (`mod` 6) . (+ n) . fromEnum
+
+instance Enum Direction where
+  fromEnum d = case d of
+    NE -> 0
+    EE -> 1
+    SE -> 2
+    SW -> 3
+    WW -> 4
+    NW -> 5
+  toEnum n = case n of
+    0 -> NE
+    1 -> EE
+    2 -> SE
+    3 -> SW
+    4 -> WW
+    5 -> NW
+  succ = turn 1
+  pred = turn 5
+  enumFrom d = iterate succ d
+  enumFromTo b e = takeWhile (/= e) (enumFrom b) ++ [e]
+  enumFromThen b t = iterate (turn ((fromEnum t - fromEnum b + 6) `mod` 6)) b
+  enumFromThenTo b t e = takeWhile (/= e) (enumFromThen b t) ++ [e]
+
+instance Ix Direction where
+  range (a, b) = [a .. b]
+  index (a, _) i = (fromEnum i - fromEnum a + 6) `mod` 6
+  inRange (a, b) i = let
+    [a',b',i'] = map fromEnum [a,b,i]
+    in case (i' `compare` a', i' `compare` b', a' `compare` b') of
+      (EQ,_,_) -> True
+      (_,EQ,_) -> True
+      (_,_,EQ) -> False
+      (GT,LT,LT) -> True
+      (_,GT,GT) -> True
+      (LT,_,GT) -> True
+      _ -> False
+  rangeSize (a,b) = (fromEnum b - fromEnum a + 6) `mod` 6 + 1
 
 {-
     (0,1)   (1,1)
