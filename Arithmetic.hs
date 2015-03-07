@@ -137,7 +137,12 @@ modelDecode = ma . map prep where
       mp r
 
 randomA :: (RandomGen g) => g -> [Range]
-randomA = fromBytes . randoms
+randomA g = let
+  (a,b) = genRange g
+  (m,g') = next g
+  w = fromIntegral (b - a)
+  l = fromIntegral (m - a)
+  in Range (l % w) ((l + 1) % w) : randomA g'
 
 byteModel = modelDecode $ zip (repeat 1) [0 :: Word8 .. maxBound]
 fromBytes :: [Word8] -> [Range]
