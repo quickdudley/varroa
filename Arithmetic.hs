@@ -19,12 +19,6 @@ module Arithmetic (
   randomA,
   byteModel,
   fromBytes,
-  base64,
-  fromBase64,
-  hex,
-  fromHex,
-  decimal,
-  fromDecimal
  ) where
 
 import Control.Applicative
@@ -37,10 +31,10 @@ import Data.List (foldl1')
 import Data.Word
 import System.Random
 
-data Range = Range Rational Rational deriving (Eq,Show)
+data Range = Range Double Double deriving (Eq,Show)
 
 data DecodeTree a =
-  DecodeNode Range Rational (DecodeTree a) (DecodeTree a) |
+  DecodeNode Range Double (DecodeTree a) (DecodeTree a) |
   DecodeLeaf Range a
 
 type DecodeT m a = StateT [Range] m a
@@ -124,7 +118,7 @@ finDecode (DecodeLeaf _ v) = v
 
 modelDecode :: Real p => [(p,v)] -> DecodeTree v
 modelDecode = ma . map prep where
-  prep (p,v) = (toRational p, DecodeLeaf (Range 0 1) v)
+  prep (p,v) = (fromRational $ toRational p, DecodeLeaf (Range 0 1) v)
   ma [] = error "Cannot build model from empty list!"
   ma [(_,x)] = x
   ma l = ma (mp l)
@@ -142,42 +136,11 @@ randomA g = let
   (m,g') = next g
   w = fromIntegral (b - a)
   l = fromIntegral (m - a)
-  in Range (l % w) ((l + 1) % w) : randomA g'
+  in Range (fromRational $ l % w) (fromRational $ (l + 1) % w) : randomA g'
 
 byteModel = modelDecode $ zip (repeat 1) [0 :: Word8 .. maxBound]
 fromBytes :: [Word8] -> [Range]
 fromBytes = map be where
-  be x = let x' = fromIntegral x in Range (x'%256) ((x'+1)%256)
+  be x = let x' = fromIntegral x in Range (fromRational $ x'%256) (fromRational $ (x'+1)%256)
 
-decimal = modelDecode $ zip (repeat 1) ['0'..'9']
-fromDecimal = map (df . read . (:[])) where
-  df x = Range (x%10) ((x+1)%10)
-
-hex = modelDecode $ zip (repeat 1) (['0'..'9']++['A'..'F'])
-fromHex = map br where
-  br c
-   | c >= '0' && c <= '9' = let
-     p = read [c]
-     in Range (p%16) ((p+1)%16)
-   | c >= 'A' && c <= 'F' = let
-     p = fromIntegral (fromEnum c - fromEnum 'A' + 10)
-     in Range (p%16) ((p+1)%16)
-   | c >= 'a' && c <= 'f' = let
-     p = fromIntegral (fromEnum c - fromEnum 'a' + 10)
-     in Range (p%16) ((p+1)%16)
-
-base64 = modelDecode $ zip (repeat 1) (['A'..'Z']++['a'..'z']++['0'..'9']++"+/")
-fromBase64 = map br where
-  br c
-   | c >= 'A' && c <= 'Z' = let
-    p = fromIntegral (fromEnum c - fromEnum 'A')
-    in Range (p%64) ((p+1)%64)
-   | c >= 'a' && c <= 'z' = let
-    p = fromIntegral (fromEnum c - fromEnum 'a' + 26)
-    in Range (p%64) ((p+1)%64)
-   | c >= '0' && c <= '9' = let
-    p = fromIntegral (fromEnum c - fromEnum '0' + 52)
-    in Range (p%64) ((p+1)%64)
-   | c == '+' = Range (62%64) (63%64)
-   | c == '/' = Range (63%64) 1
 

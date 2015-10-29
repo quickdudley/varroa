@@ -3,12 +3,14 @@ import Control.Monad.Identity
 import Control.Monad.Writer
 import Control.Concurrent
 import Data.IORef
+import Control.Concurrent.MVar
 import Data.List
 import qualified Data.Map as M
 import Data.Maybe
 import Data.Monoid
 import System.Directory (doesFileExist,renameFile)
 import System.IO
+import System.IO.Unsafe
 import System.Random
 import Graphics.UI.Gtk
 import Graphics.Rendering.Cairo
@@ -109,10 +111,18 @@ commentary boardRef gui@(canvas,_) vls ((_,b'):r@((p,b):_)) = do
 updateVLS p vls = maybe vls (\n -> vls {student = n})
   (actorNNet $ head $ filter isStudent $ M.elems p)
 
-saveVLS vls fn = do
-  let tfn = (fn ++ "~")
-  h <- openFile tfn WriteMode
-  hPutStr h $ show vls
-  hClose h
-  renameFile tfn fn
+savelock :: MVar VLS
+savelock = unsafePerformIO newEmptyMVar
+
+saveVLS vls fn = forkIO $ do
+  l <- tryPutMVar savelock vls
+  if l
+  then do
+    let tfn = (fn ++ "~")
+    h <- openFile tfn WriteMode
+    hPutStr h $ show vls
+    hClose h
+    renameFile tfn fn
+    takeMVar savelock >> return ()
+  else return ()
 
