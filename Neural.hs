@@ -21,6 +21,7 @@ sigmoid t = 1 / (1 + exp (-t))
 sigmoidDerivative :: Double -> Double
 sigmoidDerivative fx = fx * (1 - fx)
 
+feedforward :: NNet -> [Double] -> [Double]
 feedforward = flip (foldl' feedlayer)
 
 feedlayer i = map (sigmoid . sum . zipWith (*) (1:i))
