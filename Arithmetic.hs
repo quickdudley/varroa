@@ -1,8 +1,9 @@
+{-# Language RankNTypes #-}
 module Arithmetic (
+{-
   Range,
   range,
-  DecodeTree,
-  DecodeT(..),
+  DecodeT,
   (~*~),
   (~/~),
   (~&~),
@@ -19,28 +20,59 @@ module Arithmetic (
   randomA,
   byteModel,
   fromBytes,
+-}
  ) where
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.State
 import Control.Monad.Trans
 import Control.Monad.Morph
+import Control.Monad.Writer
+import Data.Functor.Identity
+import Data.Monoid (Endo(..))
 import Data.Ratio
-import Data.List (foldl1')
+import Data.List (foldl1',sum)
 import Data.Word
 import System.Random
 
-data Range = Range Double Double deriving (Eq,Show)
+data Range = Range Rational Rational deriving (Eq,Show)
 
-data DecodeTree a =
-  DecodeNode Range Double (DecodeTree a) (DecodeTree a) |
-  DecodeLeaf Range a
+data Decoder m a =
+  Action (m (Decoder m a)) |
+  Consume (Range -> Decoder m a) |
+  Result a
 
-type DecodeT m a = StateT [Range] m a
-runDecodeT = runStateT
+newtype DecodeT m a =
+  D {cpsDecoder :: forall b . (a -> Decoder m b) -> Decoder m b}
+
+type Decode = DecodeT Identity
 
 range a b = if a <= b then Range a b else Range b a
+
+instance Functor (DecodeT m) where
+  fmap f (D d) = D (d . (. f))
+
+instance Applicative (DecodeT m) where
+  pure a = D ($ a)
+  D f <*> D a = D (f . (a .) . (.))
+  D a *> D b = D (a . const . b)
+  D a <* D b = D (a . ((b . const) .))
+
+instance Monad (DecodeT m) where
+  return = pure
+  (>>) = (*>)
+  D a >>= f = D (a . flip (cpsDecoder . f))
+
+instance MonadTrans DecodeT where
+  lift a = D (Action . flip fmap a)
+
+instance MFunctor DecodeT where
+  hoist f (D d) = D (\c -> let
+    go (Action a) = Action (f (fmap go a))
+    go (Consume d) = Consume (fmap go d)
+    go (Result a) = c a
+    in go (d Result)
+   )
 
 infixl 7 ~*~
 ~(Range lo ho) ~*~ ~(Range li hi) = let
@@ -72,63 +104,82 @@ infixl 6 ~<~
 infixl 6 ~^~
 ~(Range lo ho) ~^~ ~(Range li hi) = lo <= li && ho >= hi
 
-transformDecoder dt = StateT (\r -> return $ runDecode' False dt r)
+runDecodeT :: Monad m => DecodeT m a -> [Range] -> m a
+runDecodeT (D d) = runDecoder (d Result)
 
-decodeStep :: DecodeTree a -> Range -> DecodeTree a
-decodeStep (DecodeLeaf n v) t = DecodeLeaf (n ~*~ t) v
-decodeStep (DecodeNode n s l r) t = let
-  i = n ~*~ t
-  rl = n ~*~ range 0 s
-  rr = n ~*~ range s 1
-  in case (i ~&~ rl, i ~&~ rr) of
-    (True,True) -> DecodeNode i s l r
-    (True,False) -> decodeStep l (rl ~/~ i)
-    (False,True) -> decodeStep r (rr ~/~ i)
-    (False,False) -> error "Unacceptable range appeared"
+runDecode :: Decode a -> [Range] -> a
+runDecode = (runIdentity .) . runDecodeT
 
-runDecode :: DecodeTree a -> [Range] -> a
-runDecode t rs = let (v,_) = runDecode' False t rs in v
+runDecoder :: Monad m => Decoder m a -> [Range] -> m a
+runDecoder = go where
+  go (Result a) _ = return a
+  go (Consume d) (a:r) = go (d a) r
+  go (Consume d) [] = go (d (Range 0 0)) []
+  go (Action a) r = a >>= flip go r
 
-runDecode' :: Bool -> DecodeTree a -> [Range] -> (a,[Range])
-runDecode' _ (DecodeLeaf w v) r = (v,w:r)
-runDecode' False t@(DecodeNode _ _ _ _) [] =
-  (runDecode t [Range 0 0],[])
-runDecode' True t@(DecodeNode n s l r) [] = (head $ leafList,[]) where
-  leafList = ll t
-  ll :: DecodeTree a -> [a]
-  ll (DecodeLeaf (Range 0 _) v) = [v]
-  ll (DecodeLeaf _ _) = []
-  ll (DecodeNode (Range nl nh) s l r) =
-    ll (decodeStep l (Range 0 s ~/~ Range nl s)) ++
-    ll (decodeStep r (Range s 1 ~/~ Range s nh))
-runDecode' f x (r1:rs) = runDecode' f (decodeStep x r1) rs
+idleDecoder :: Monad m => Decoder m a -> m (Decoder m a)
+idleDecoder (Action a) = a >>= idleDecoder
+idleDecoder d = return d
 
-listDecode :: DecodeTree a -> [Range] -> [a]
-listDecode t rs = let
-  (v,r) = runDecode' False t rs
-  (v',_) = runDecode' True t rs
-  in case r of
-    [Range 0 _] -> [v']
-    [] -> [v']
-    _ -> v : listDecode t r
+stepDecoder :: Functor m => Decoder m a -> Range -> Decoder m a
+stepDecoder d' r = go d' where
+  go d@(Result _) = d
+  go (Consume d) = d r
+  go (Action a) = Action (fmap go a)
 
-finDecode :: DecodeTree a -> a
-finDecode (DecodeNode _ _ l _) = finDecode l
-finDecode (DecodeLeaf _ v) = v
+modelDecode :: (Functor m, Real p) => [(p,v)] -> DecodeT m v
+modelDecode l = D (\c -> let
+  go rl sr = case ds rl sr of
+    [(nr,v)]
+      | nr == sr -> c v
+      | otherwise -> stepDecoder (c v) (nr ~/~ sr)
+    rl' -> Consume (\sr' -> go rl' (sr ~*~ sr'))
+  in go (build rl 0) (Range 0 1)
+ ) where
+  rl = map (\(p,v) -> (toRational p, v)) l
+  total = sum $ map fst rl
+  build [] _ = []
+  build ((0,_):r) b = build r b
+  build ((p,v):r) b = let
+    p' = p / total
+    b' = b + p'
+    in (Range b b', v) : build r b'
+  ds [] _ = []
+  ds (i@(Range ol oh,_):r) g@(Range l h)
+    | ol >= h = []
+    | oh < l = ds r g
+    | otherwise = i : ds r g
 
-modelDecode :: Real p => [(p,v)] -> DecodeTree v
-modelDecode = ma . map prep where
-  prep (p,v) = (fromRational $ toRational p, DecodeLeaf (Range 0 1) v)
-  ma [] = error "Cannot build model from empty list!"
-  ma [(_,x)] = x
-  ma l = ma (mp l)
-  mp [] = []
-  mp [a] = [a]
-  mp ((pa,va):(pb,vb):r) = let
-    ps = pa + pb
-    pp = pa / ps
-    in (ps,DecodeNode (Range 0 1) pp va vb) :
-      mp r
+modelIntegral :: (Functor m, Integral v) => v -> v -> DecodeT m v
+modelIntegral l h = D (\c -> let
+  go r@(Range cl ch) = let
+    ccl = floor cl
+    m1 x = let
+      n = numerator x
+      d = denominator x
+      in (n `mod` d) % d
+    in if ch <= (toRational ccl + 1)
+      then if denominator cl == 1 && denominator cl == 1
+        then c ccl
+        else stepDecoder (c ccl) (range (m1 cl) (case m1 ch of {0 -> 1; z -> z}))
+      else Consume (\r2 -> go (r ~*~ r2))
+  in go $ range (toRational l) (toRational h + 1)
+ )
+
+listDecodeT :: Monad m => DecodeT m v -> [Range] -> m [v]
+listDecodeT d = let
+  e = D (\c -> Consume (\r -> case r of
+    Range 0 0 -> c False
+    _ -> stepDecoder (c True) r
+   ))
+  d' = hoist lift d
+  go = e >>= \cc -> if cc
+    then d' >>= \v -> lift (tell (Endo (v :))) >> go
+    else return ()
+  in fmap (($ []) . appEndo) . execWriterT . runDecodeT go
+
+listDecode :: Decode v -> [Range] -> [v]
+listDecode = (runIdentity .) . listDecodeT
 
 randomA :: (RandomGen g) => g -> [Range]
 randomA g = let
@@ -136,11 +187,11 @@ randomA g = let
   (m,g') = next g
   w = fromIntegral (b - a)
   l = fromIntegral (m - a)
-  in Range (fromRational $ l % w) (fromRational $ (l + 1) % w) : randomA g'
+  in Range (l % w) ((l + 1) % w) : randomA g'
 
-byteModel = modelDecode $ zip (repeat 1) [0 :: Word8 .. maxBound]
+byteModel :: Functor m => DecodeT m Word8
+byteModel = modelIntegral minBound maxBound
 fromBytes :: [Word8] -> [Range]
 fromBytes = map be where
   be x = let x' = fromIntegral x in Range (fromRational $ x'%256) (fromRational $ (x'+1)%256)
-
 

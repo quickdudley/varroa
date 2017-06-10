@@ -60,7 +60,7 @@ executable varroa
   -- other-extensions:    
   
   -- Other library packages from which modules are imported.
-  build-depends:       base,
+  build-depends:       base >= 4.8,
     containers,
     array,
     mtl,
