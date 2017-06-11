@@ -8,13 +8,12 @@ module Reinforcement (
 import Arithmetic (
   Range,
   fromBytes,
-  DecodeTree,
   DecodeT(..),
   runDecode,
   runDecodeT,
   randomA,
-  transformDecoder,
-  modelDecode
+  modelDecode,
+  truncate
  )
 import Board
 import Neural
@@ -125,7 +124,7 @@ selectMove s n p b = let
   sf = case length playing of
     2 -> flip const
     3 -> \b a -> b*s + a
-  in transformDecoder $ modelDecode $ map (\b' ->
+  in modelDecode $ map (\b' ->
     (uncurry sf (evaluate n nextPlayer b' M.! p),b')
    ) $ genMoves p b
 
@@ -151,6 +150,7 @@ continueGame cp' b a = do
         return (p1,a2)
        ) $ M.toList a
       lift $ tell $ Endo ([(a',move)]++)
+      Arithmetic.truncate $ toRational . (fromRational :: Rational -> Double)
       continueGame (playing !! 1) move a'
 
 selfTrain :: NNet -> NNet
@@ -158,9 +158,9 @@ selfTrain :: NNet -> NNet
     (WriterT (Endo [(M.Map Player (Actor Identity),Board)]) Identity)
     Board
 selfTrain t s = do
-  ~(start,players) <- transformDecoder $ modelDecode
+  ~(start,players) <- modelDecode
     [(1,(startBoard2,[Blue,Red])),(1,(startBoard3,[Blue,Green,Red]))]
-  student <- transformDecoder $ modelDecode $
+  student <- modelDecode $
     map (\x -> (1,x)) players
   let
     teacherA = Teacher 0.5 t
@@ -168,6 +168,6 @@ selfTrain t s = do
     actors = M.insert student studentA $ M.fromList $ map
       (\p -> (p,teacherA))
       players
-  lift $ tell $ Endo ([(actors,start)]++)
+  lift $ tell $ Endo ((actors,start):)
   continueGame Blue start actors
 

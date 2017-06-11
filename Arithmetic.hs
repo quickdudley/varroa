@@ -1,6 +1,5 @@
 {-# Language RankNTypes #-}
 module Arithmetic (
-{-
   Range,
   range,
   DecodeT,
@@ -14,13 +13,12 @@ module Arithmetic (
   (%),
   runDecode,
   runDecodeT,
-  transformDecoder,
+  Arithmetic.truncate,
   listDecode,
   modelDecode,
   randomA,
   byteModel,
-  fromBytes,
--}
+  fromBytes
  ) where
 
 import Control.Applicative
@@ -126,6 +124,11 @@ stepDecoder d' r = go d' where
   go d@(Result _) = d
   go (Consume d) = d r
   go (Action a) = Action (fmap go a)
+
+truncate :: Functor m => (Rational -> Rational) -> DecodeT m ()
+truncate f = D (\c ->
+  Consume (\ ~(Range l h) -> stepDecoder (c ()) (Range (f l) (f h)))
+ )
 
 modelDecode :: (Functor m, Real p) => [(p,v)] -> DecodeT m v
 modelDecode l = D (\c -> let

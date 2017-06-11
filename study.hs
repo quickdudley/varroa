@@ -27,18 +27,13 @@ data VLS = VLS {
   lead :: Int
  } deriving (Read,Show)
 
-safely o = do
-  threadsEnter
-  o
-  threadsLeave
-
 main = do
   board <- newIORef M.empty
   c <- doesFileExist "brain"
   vls <- if c
     then liftM read (readFile "brain")
     else liftM initialVLS getStdGen
-  initGUI
+  unsafeInitGUIForThreadedRTS
   window <- windowNew
   onDestroy window mainQuit
   set window [
@@ -85,14 +80,14 @@ train1game boardRef gui@(canvas,_) vls' = do
     (p,b) = head gr
     sp = head $ M.keys $ M.filter isStudent p
   writeIORef boardRef b
-  safely $ widgetQueueDraw canvas
+  postGUIAsync $ widgetQueueDraw canvas
   putStrLn ((show $ M.size p) ++ " player game. " ++ show sp ++ " is student.")
   commentary boardRef gui vls gr
 
 commentary _ _ vls [] = return vls
 commentary boardRef gui@(canvas,_) vls [(p,b)] = do
   writeIORef boardRef b
-  safely $ widgetQueueDraw canvas
+  postGUIAsync $ widgetQueueDraw canvas
   let w = head $ whichPlayers b
   putStrLn $ "\n" ++ show w ++ " wins."
   let sp = head $ M.keys $ M.filter isStudent p
@@ -101,7 +96,7 @@ commentary boardRef gui@(canvas,_) vls ((_,b'):r@((p,b):_)) = do
   let vls' = updateVLS p vls
   saveVLS vls' "brain"
   writeIORef boardRef b
-  safely $ widgetQueueDraw canvas
+  postGUIAsync $ widgetQueueDraw canvas
   putStr "."
   hFlush stdout
   let elim = whichPlayers b' \\ whichPlayers b
