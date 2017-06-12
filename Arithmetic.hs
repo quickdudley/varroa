@@ -176,9 +176,7 @@ listDecodeT d = let
     _ -> stepDecoder (c True) r
    ))
   d' = hoist lift d
-  go = e >>= \cc -> if cc
-    then d' >>= \v -> lift (tell (Endo (v :))) >> go
-    else return ()
+  go = when cc $ d' >>= \ v -> lift (tell (Endo (v :))) >> go
   in fmap (($ []) . appEndo) . execWriterT . runDecodeT go
 
 listDecode :: Decode v -> [Range] -> [v]

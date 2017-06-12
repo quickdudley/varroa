@@ -21,7 +21,7 @@ instance Read Layer where
     readsPrec p s
    where
     ul l = let
-      w = (minimum $ map length l) - 1
+      w = minimum (map length l) - 1
       h = length l - 1
       in Layer $ array ((0,0),(w,h)) $ do
         (y,r) <- zip [0 .. h] l
@@ -72,7 +72,7 @@ error-->Multiply by weights
                             -->Update weights
 -}
 backprop :: Double -> [Double] -> [Double] -> NNet -> NNet
-backprop rate i t n = backpropSome rate i (map Just t) n
+backprop rate i t = backpropSome rate i (map Just t)
 
 backpropSome :: Double -> [Double] -> [Maybe Double] -> NNet -> NNet
 backpropSome rate i t n = fst $ backprop' i t n where

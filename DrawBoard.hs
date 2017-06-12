@@ -10,6 +10,7 @@ import Data.Function (on)
 import Data.List
 import qualified Data.Map as M
 import Data.Array
+import Control.Monad
 import Graphics.Rendering.Cairo
 
 data PlayState = Ready Int8 | Selected Int8 (Int8,Int8) | Waiting
@@ -26,7 +27,8 @@ renderBoard w h s b = do
     let
       c = uncurry hex2grid p
       cpts = map ($ c) corners
-    sequence_ $ zipWith goPoint (moveTo : repeat lineTo) (cpts ++ [head cpts])
+    zipWithM_ goPoint (moveTo : repeat lineTo)
+      (cpts ++ [head cpts])
     case M.lookup p b of
       Nothing -> stroke
       Just (player,direction) -> do
@@ -37,7 +39,8 @@ renderBoard w h s b = do
           Red -> setSourceRGB 1 0 0
           Green -> setSourceRGB 0 1 0
           Blue -> setSourceRGB 0 0 1
-        sequence_ $ zipWith goPoint (moveTo : repeat lineTo) [c,pf1 c, pf2 c, c]
+        zipWithM_ goPoint (moveTo : repeat lineTo)
+          [c, pf1 c, pf2 c, c]
         fill
         setSourceRGB 0 0 0
     return ()

@@ -99,12 +99,12 @@ evaluate nn p b = let
 
 isomorphisms b = nub $ do
   b' <- [b,flipBoard b]
-  b' : map (flip rotateBoard b') [1..5]
+  b' : map (`rotateBoard` b') [1..5]
 
 updateENet :: Player -> Board -> Board -> NNet -> NNet
 updateENet p bo bt n = let
   playing = whichPlayersFrom p bo
-  nextPlayer = (cycle playing) !! 1
+  nextPlayer = cycle playing !! 1
   er = evaluate n nextPlayer bt
   mo = case length playing of
     3 -> map Just $ concatMap ((\(a,b) -> [a,b]) . (er M.!)) playing
@@ -120,7 +120,7 @@ selectMove :: (Monad m) => Double -> NNet -> Player -> Board ->
   DecodeT m Board
 selectMove s n p b = let
   playing = whichPlayersFrom p b
-  nextPlayer = (cycle playing) !! 1
+  nextPlayer = cycle playing !! 1
   sf = case length playing of
     2 -> flip const
     3 -> \b a -> b*s + a
@@ -143,9 +143,9 @@ continueGame cp' b a = do
       lift $ tell $ Endo ([(a,b)]++)
       return b
     else do
-      let ca = (a M.! cp)
+      let ca = a M.! cp
       move <- hoist lift $ actorMove ca cp b
-      a' <- lift $ lift $ liftM M.fromList $ sequence $ map (\(p1,a1) -> do
+      a' <- lift $ lift $ fmap M.fromList $ mapM (\(p1,a1) -> do
         a2 <- actorNotify cp b move a1
         return (p1,a2)
        ) $ M.toList a

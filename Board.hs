@@ -53,7 +53,7 @@ instance Enum Direction where
     5 -> NW
   succ = turn 1
   pred = turn 5
-  enumFrom d = iterate succ d
+  enumFrom = iterate succ
   enumFromTo b e = takeWhile (/= e) (enumFrom b) ++ [e]
   enumFromThen b t = iterate (turn ((fromEnum t - fromEnum b + 6) `mod` 6)) b
   enumFromThenTo b t e = takeWhile (/= e) (enumFromThen b t) ++ [e]
@@ -150,7 +150,7 @@ rotateBoard n bd = (M.fromList . map rotate1 . M.toList) bd where
   rd = turn (6 - n)
 
 flipBoard :: Board -> Board
-flipBoard bd = (M.fromList . map flip1 . M.toList) bd where
+flipBoard = M.fromList . map flip1 . M.toList where
   flip1 (t,(p,d)) = (ft t,(p,fd d))
   ft (x,y) = (y-x,y)
   fd = toEnum . (5 -) . fromEnum
