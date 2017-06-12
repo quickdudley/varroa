@@ -2,6 +2,7 @@ import Control.Monad
 import Control.Monad.Identity
 import Control.Monad.Writer
 import Control.Concurrent
+import Control.DeepSeq
 import Data.IORef
 import Control.Concurrent.MVar
 import Data.List
@@ -33,6 +34,7 @@ main = do
   vls <- if c
     then liftM read (readFile "brain")
     else liftM initialVLS getStdGen
+  teacher vls `deepseq` student vls `deepseq` return ()
   unsafeInitGUIForThreadedRTS
   window <- windowNew
   onDestroy window mainQuit
@@ -61,7 +63,7 @@ main = do
   mainGUI
 
 initialVLS g = let
-  n = randomNNet g [1638,40,30,6]
+  n = randomNNet g [1638,700,30,6]
   in VLS {
     teacher = n,
     student = n,
@@ -69,10 +71,17 @@ initialVLS g = let
    }
 
 train1game boardRef gui@(canvas,_) vls' = do
+  vls <- if lead vls' < 5
+    then do
+      putStrLn $ case lead vls' `compare` 0 of
+        EQ -> "Current lead is even"
+        GT -> "Student leads by " ++ show (lead vls')
+        LT -> "Teacher leads by " ++ show (abs (lead vls'))
+      return vls'
+    else do
+      putStrLn "The teacher becomes the student!"
+      return $ vls' {teacher = student vls', lead = 0}
   let
-    vls = if lead vls' < 5
-      then vls'
-      else vls' {teacher = student vls', lead = 0}
     td = selfTrain (teacher vls) (student vls)
   rs <- liftM randomA newStdGen
   let

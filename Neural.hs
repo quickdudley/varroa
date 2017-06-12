@@ -9,13 +9,17 @@ module Neural (
 
 import Data.Array.Unboxed
 import Data.List
+import Control.DeepSeq
+import Control.Parallel.Strategies
 import System.Random
 
 newtype Layer = Layer (UArray (Int,Int) Double) deriving (Eq)
 type NNet = [Layer]
 
 instance Read Layer where
-  readsPrec p s = map (\ ~(a,r) -> (ul a, r)) $ readsPrec p s where
+  readsPrec p s = map (\ ~(a,r) -> let x = ul a in x `deepseq` (x, r)) $
+    readsPrec p s
+   where
     ul l = let
       w = (minimum $ map length l) - 1
       h = length l - 1
@@ -28,6 +32,9 @@ instance Show Layer where
   showsPrec p (Layer l) = let
     ((x0,y0),(xn,yn)) = bounds l
     in showsPrec p $ map (\y -> map (\x -> l ! (x,y)) [x0 .. xn]) [y0 .. yn]
+
+instance NFData Layer where
+  rnf (Layer l) = l `seq` ()
 
 sigmoid :: Double -> Double
 sigmoid t = 1 / (1 + exp (-t))
@@ -43,7 +50,9 @@ feedforward = flip (foldl' feedlayer)
 feedlayer :: [Double] -> Layer -> [Double]
 feedlayer i (Layer l) = let
   ((x0,y0),(xn,yn)) = bounds l
-  in map (\y -> sigmoid $ sum $ zipWith (\x i' -> (l ! (x,y)) * i') [x0 .. xn] (1:i)) [y0 .. yn]
+  in withStrategy (parList rdeepseq) $ map
+    (\y -> sigmoid $ sum $ zipWith (\x i' -> (l ! (x,y)) * i') [x0 .. xn] (1:i))
+    [y0 .. yn]
 
 {-
 What was causing the bug
@@ -81,7 +90,7 @@ backpropSome rate i t n = fst $ backprop' i t n where
       x -> backprop' hs t n
     -- we: Error divided among weights
     we :: UArray (Int,Int) Double
-    we = array ab $ do
+    we = array ab $ withStrategy (parList rdeepseq) $ do
       (oe,y) <- zip e [y0 .. yn]
       x <- [x0 .. xn]
       return ((x,y), oe * (la ! (x,y)))
@@ -89,7 +98,7 @@ backpropSome rate i t n = fst $ backprop' i t n where
     -- nw: New weights for this layer
     -- wl: weights leading to current node
     -- h: this node's output
-    nw = Layer $ array ab $ do
+    nw = Layer $ array ab $ withStrategy (parList rdeepseq) $ do
       (y,d,h) <- zip3 [y0 .. yn] e hs
       let sdh = sigmoidDerivative h
       (x,i') <- zip [x0 .. xn] (1 : i)
@@ -101,7 +110,8 @@ randomNNet :: RandomGen g => g -> [Int] -> NNet
 randomNNet _ [_] = []
 randomNNet gen (i:r@(n:_)) = let
   i' = i + 1
-  (gen',l1) = mapAccumL (const . uncurry (flip (,)) . randomR (-0.05, 0.05)) gen $
+  (gen',l1) =
+    mapAccumL (const . uncurry (flip (,)) . randomR (-0.05, 0.05)) gen $
     replicate ((i + 1) * n) ()
   ar = ((0,0),(i, n - 1))
   l1' = Layer $ array ar $ zip (range ar) l1
