@@ -1,6 +1,7 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Neural (
   NNet,
-  Layer,
+  Layer(..),
   feedforward,
   backprop,
   backpropSome,
@@ -9,9 +10,18 @@ module Neural (
 
 import Data.Array.Unboxed
 import Data.List
+import Data.Binary
+import Data.Binary.Get
+import Data.Binary.Put
 import Control.DeepSeq
 import Control.Parallel.Strategies
+import Control.Monad
 import System.Random
+
+import ProjectM36.Base (Relation(..))
+import ProjectM36.Client
+import ProjectM36.Relation
+import ProjectM36.Tuple
 
 newtype Layer = Layer (UArray (Int,Int) Double) deriving (Eq)
 type NNet = [Layer]
@@ -32,6 +42,54 @@ instance Show Layer where
   showsPrec p (Layer l) = let
     ((x0,y0),(xn,yn)) = bounds l
     in showsPrec p $ map (\y -> map (\x -> l ! (x,y)) [x0 .. xn]) [y0 .. yn]
+
+synapse_attrs = attributesFromList [
+  Attribute "inputIndex" IntAtomType,
+  Attribute "outputIndex" IntAtomType,
+  Attribute "weight" DoubleAtomType
+ ]
+
+instance Binary Layer where
+  put (Layer l) = do
+    let b@((x0,y0),(xn,yn)) = bounds l
+    put (xn - x0)
+    put (yn - y0)
+    forM_ (range b) $ \(x,y) -> put (l ! (x,y))
+  get = do
+    w <- get
+    h <- get
+    let b = ((0,0),(w,h))
+    fmap (Layer . array b) $ forM (range b) $ \(x,y) -> fmap ((,) (x,y)) get
+
+instance Atomable Layer where
+  toAtom (Layer l) = let
+    Right r = mkRelationFromList synapse_attrs $ do
+      (x,y) <- range $ bounds l
+      return [toAtom x, toAtom y, toAtom (l ! (x,y))]
+    in toAtom r
+  fromAtom a = let
+    r :: Relation
+    r = fromAtom a
+    mg _ a Nothing = a
+    mg _ Nothing b = b
+    mg f (Just a) (Just b) = Just (f a b)
+    e2m (Left _) = Nothing
+    e2m (Right r) = Just r
+    (Just x0, Just xn, Just y0, Just yn) = relFold (\t (x0',xn',y0',yn') -> let
+      [x,y] = map (\n -> fmap fromAtom $ e2m (atomForAttributeName n t))
+        ["inputIndex","outputIndex"]
+      in force (mg min x0' x, mg max xn' x, mg min y0' y, mg max yn' y)
+     ) (Nothing,Nothing,Nothing,Nothing) r
+    in Layer $ array ((x0,y0),(xn,yn)) $ relFold (\t r' -> let
+      Right e = do
+        x <- atomForAttributeName "inputIndex" t
+        y <- atomForAttributeName "outputIndex" t
+        w <- atomForAttributeName "weight" t
+        return ((fromAtom x, fromAtom y), fromAtom w)
+      in e : r'
+     ) [] r
+  toAtomType _ = RelationAtomType synapse_attrs
+  toDatabaseContextExpr _ = NoOperation
 
 instance NFData Layer where
   rnf (Layer l) = l `seq` ()

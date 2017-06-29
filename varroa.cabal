@@ -70,7 +70,9 @@ executable varroa
     directory,
     cairo >= 0.13,
     gtk >= 0.13,
-    random >= 1
+    random >= 1,
+    binary == 0.8.3.0,
+    project-m36 == 0.1
     
   
   -- Directories containing source files.
