@@ -66,6 +66,7 @@ executable varroa
     containers,
     array,
     mtl,
+    hfnn,
     mmorph,
     directory,
     cairo >= 0.13,
