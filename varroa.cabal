@@ -65,6 +65,7 @@ executable varroa
     deepseq,
     containers,
     array,
+    stm,
     mtl,
     mmorph,
     directory,

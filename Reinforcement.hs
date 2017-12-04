@@ -21,15 +21,14 @@ import Neural
 import Control.Monad.Identity
 import Control.Monad.Morph (hoist)
 import Control.Monad.Writer
+import Control.Concurrent.STM
 import Data.List
 import Data.Monoid
 import qualified Data.Map as M
 import System.Random
 
 data Actor m =
-  Teacher Double NNet |
-  Student Double NNet |
-  Outsider (Player -> Board -> m Board) (Player -> Board -> m ())
+  Actor (Player -> Board -> m Board) (Player -> Board -> Board -> m ())
 
 actorNNet :: Actor m -> Maybe NNet
 actorNNet (Teacher _ n) = Just n
@@ -48,19 +47,28 @@ isStudent _ = False
 -- that just moved. The Board arguments are the previous and current
 -- boards.
 actorNotify :: (Monad m) =>
-  Player -> Board -> Board -> Actor m -> m (Actor m)
-actorNotify p b1 b2 (Student c n) = return $ Student c $ updateENet p b1 b2 n
-actorNotify _ _ _ t@(Teacher _ _) = return t
-actorNotify p b1 b2 o@(Outsider _ nf) = do
+  Player -> Board -> Board -> Actor m -> m ()
+actorNotify p b1 b2 o@(Actor _ nf) = do
   nf p b2
   return o
 
-actorMove :: (Monad m) => Actor m -> Player -> Board -> DecodeT m Board
-actorMove a p b = case actorNNet a of
-  Just nn -> selectMove (actorSolidarity a) nn p b
-  Nothing -> let
-    Outsider mf _ = a
-    in lift $ mf p b
+teacher :: Monad m => Double -> NNet -> Actor (DecodeT m)
+teacher s n = Actor (selectMove s n) (const $ const $ const $ return ())
+
+student :: (Monad m, MonadIO m) => Double -> TVar (Bool,NNet) ->
+  Actor (DecodeT m)
+student s n = Actor
+  (\p b -> do
+    n' <- lift $ atomically $ readTVar n
+    selectMove s n p b
+   )
+  (\p b1 b2 -> lift $ atomically $ do
+    (_,nn) <- readTVar n
+    writeTVar (True,updateENet p b1 p2 nn)
+   )
+
+actorMove :: (Monad m) => Actor m -> Player -> Board -> m Board
+actorMove (Actor a _) p b = a p b
 
 {-
 Represent the board as a list of doubles for feeding to the neural network.
@@ -133,7 +141,7 @@ continueGame :: (Monad m) =>
   Player ->
   Board ->
   M.Map Player (Actor m) ->
-  DecodeT (WriterT (Endo [(M.Map Player (Actor m),Board)]) m) Board
+  DecodeT m Board
 continueGame cp' b a = do
   let
     playing = whichPlayersFrom cp' b
@@ -153,21 +161,18 @@ continueGame cp' b a = do
       Arithmetic.truncate $ toRational . (fromRational :: Rational -> Double)
       continueGame (playing !! 1) move a'
 
-selfTrain :: NNet -> NNet
-  -> DecodeT
-    (WriterT (Endo [(M.Map Player (Actor Identity),Board)]) Identity)
-    Board
+selfTrain :: NNet -> TVar (Bool,NNet)
+  -> DecodeT IO Board
 selfTrain t s = do
   ~(start,players) <- modelDecode
     [(1,(startBoard2,[Blue,Red])),(1,(startBoard3,[Blue,Green,Red]))]
   student <- modelDecode $
     map (\x -> (1,x)) players
   let
-    teacherA = Teacher 0.5 t
-    studentA = Student 0.5 s
+    teacherA = teacher 0.5 t
+    studentA = student 0.5 s
     actors = M.insert student studentA $ M.fromList $ map
       (\p -> (p,teacherA))
       players
-  lift $ tell $ Endo ((actors,start):)
   continueGame Blue start actors
 
