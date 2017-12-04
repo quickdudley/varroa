@@ -64,8 +64,32 @@ standardStructure = fst $ runNNBuilder $ do
   let
     mkLayer :: M.Map (Int8,Int8) (Layer s) ->
       NNBuilder False s (M.Map (Int8,Int8) (Layer s))
-    mkLayer a = undefined
-  undefined
+    mkLayer a = do
+      let
+        s1 = let (_, l) = M.findMin a in layerSize l
+        s2 = s1 + 8
+      b <- addBaseWeights 1 s2
+      cw <- addBaseWeights s1 s2
+      sw <- fmap M.fromList $ forM [NE .. NW] $ \d -> ((,) d) <$>
+        addBaseWeights s1 s2
+      let
+        sc c = (((a M.! c,cw):)<$>) $ forM [NE .. NW] $ \d -> let
+          c' = step c d
+          in (,) <$> M.lookup c' a <*> M.lookup d sw
+      fmap (foldr M.union M.empty) $ forM (M.keys a) $ \c -> case sc c of
+        Just l' -> do
+          Just nl <- standardLayer ((bias,b):l') ahsin
+          return (M.singleton c nl)
+        Nothing -> return M.empty
+    stackc a = case M.size a of
+      1 -> return $ snd $ M.findMin a
+      _ -> mkLayer a >>= stackc
+  fl <- stackc i
+  let fls = layerSize fl
+  ob <- addBaseWeights 1 6
+  ow <- addBaseWeights fls 6
+  Just o <- standardLayer [(bias,ob),(fl,ow)] logistic
+  addOutputs o
 
 evaluate :: NNStructure False -> WeightValues ->
   Player -> Board -> M.Map Player (Double,Double)
