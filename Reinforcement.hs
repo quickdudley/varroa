@@ -20,23 +20,24 @@ import Control.Monad.Identity
 import Control.Monad.Morph (hoist)
 import Control.Monad.Writer
 import Data.Int
+import Control.Concurrent.STM
 import Data.List
 import Data.Monoid
 import qualified Data.Map as M
 import System.Random
 
 data Actor m =
-  Teacher Double (NNStructure False) WeightValues |
-  Student Double (NNStructure False) WeightValues |
-  Outsider (Player -> Board -> m Board) (Player -> Board -> m ())
+  Actor (Player -> Board -> m Board) (Player -> Board -> Board -> m ())
 
-actorSolidarity :: Actor m -> Double
-actorSolidarity (Teacher s _ _) = s
-actorSolidarity (Student s _ _) = s
-actorSolidarity _ = 0
+-- Note: the first argument of this function represents the player
+-- that just moved. The Board arguments are the previous and current
+-- boards.
+actorNotify :: (Monad m) =>
+  Player -> Board -> Board -> Actor m -> m ()
+actorNotify p b1 b2 o@(Actor _ nf) = nf p b1 b2
 
-isStudent (Student _ _ _) = True
-isStudent _ = False
+actorMove :: (Monad m) => Actor m -> Player -> Board -> m Board
+actorMove (Actor a _) p b = a p b
 
 {-
 Represent the board as a list of doubles for feeding to the neural network.
