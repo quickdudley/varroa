@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 module Reinforcement (
-  Actor
+
  ) where
 
 import Arithmetic (
@@ -26,19 +26,6 @@ import Data.Monoid
 import qualified Data.Map as M
 import System.Random
 
-data Actor m =
-  Actor (Player -> Board -> m Board) (Player -> Board -> Board -> m ())
-
--- Note: the first argument of this function represents the player
--- that just moved. The Board arguments are the previous and current
--- boards.
-actorNotify :: (Monad m) =>
-  Player -> Board -> Board -> Actor m -> m ()
-actorNotify p b1 b2 o@(Actor _ nf) = nf p b1 b2
-
-actorMove :: (Monad m) => Actor m -> Player -> Board -> m Board
-actorMove (Actor a _) p b = a p b
-
 {-
 Represent the board as a list of doubles for feeding to the neural network.
 Explanation of magic numbers:
@@ -55,8 +42,7 @@ mapBoard p b = concatMap mapTile boardRange where
     Just (p,d) -> let
       tn = tileN p d
       in replicate tn 0 ++ [1] ++ replicate (17 - tn) 0
-  playing = whichPlayersFrom p b
-  pns = M.fromList $ zip playing [0,6..]
+  pns = M.fromList $ zip (playersFrom p) [0,6..]
   tileN p d = pns M.! p + fromEnum d
 
 standardStructure :: NNStructure False
@@ -93,8 +79,14 @@ standardStructure = fst $ runNNBuilder $ do
   addOutputs o
 
 evaluate :: NNStructure False -> WeightValues ->
-  Player -> Board -> M.Map Player (Double,Double)
-evaluate nn p b = undefined
+  Player -> Board -> (FeedForward False, M.Map Player (Double,Double))
+evaluate ns wv p b = let
+  ff = feedForward ns wv $ mapBoard p b
+  pl = playersFrom p
+  oi = [(0,1),(2,3),(4,5)]
+  m = M.fromList $
+    zipWith (\p' (i1,i2) -> (p,(getOutput ff i1, getOutput ff i2))) pl oi
+  in (ff,m)
 
 isomorphisms b = nub $ do
   b' <- [b,flipBoard b]
