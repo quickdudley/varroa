@@ -1,13 +1,22 @@
 use std::collections::HashMap;
 
-#[derive(PartialEq,Eq,Copy,Clone)]
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
 enum Player {
     Red,
     Green,
     Blue,
 }
 
-#[derive(Copy,Clone,Eq,PartialEq)]
+impl std::fmt::Display for Player {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> Result<(), std::fmt::Error> {
+        <Self as std::fmt::Debug>::fmt(self, f)
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
 enum Direction {
     NE,
     EE,
@@ -17,21 +26,66 @@ enum Direction {
     NW,
 }
 
-#[derive(Copy,Clone,PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 enum Step {
     SL,
     SF,
     SR,
 }
 
-#[derive(Copy,Clone,Eq,Hash,PartialEq)]
+#[derive(Copy, Clone, Debug)]
+enum MoveError {
+    WrongPlayer {
+        actual: Player,
+        current: Player,
+        hex: Hex,
+    },
+    MissingPiece(Hex),
+}
+
+impl std::fmt::Display for MoveError {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> Result<(), std::fmt::Error> {
+        match self {
+            Self::WrongPlayer {
+                actual,
+                current,
+                hex,
+            } => write!(
+                f,
+                "Tried to move piece at {} which belongs to {}; but the current player is {}.",
+                hex, actual, current
+            ),
+            Self::MissingPiece(hex) => write!(
+                f,
+                "Tried to move piece at {} but there is no piece there.",
+                hex
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MoveError {}
+
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 struct Hex {
     row: i8,
     diag: i8,
 }
 
+impl std::fmt::Display for Hex {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> Result<(), std::fmt::Error> {
+        write!(f, "row {}, diagonal {}", self.row, self.diag)
+    }
+}
+
 struct Board {
-    pieces: HashMap<Hex,(Player,Direction)>,
+    pieces: HashMap<Hex, (Player, Direction)>,
     up: Player,
     remainder: u8,
 }
@@ -44,56 +98,116 @@ impl Board {
         }
     }
 
-    fn moves(&self) -> impl Iterator<Item=Option<((Hex,Step),(Hex,Step))>> + '_ {
+    fn moves(
+        &self,
+    ) -> impl Iterator<Item = Option<((Hex, Step), (Hex, Step))>> + '_ {
         use Step::*;
-        self.pieces.iter()
-            .filter(|(_,(p1,_))| *p1 == self.up)
-            .flat_map(move |(h1,(_,d1))| Step::all().filter_map(move |s| match s {
-                SF => {
-                    let hd = h1.neighbour(*d1);
-                    if hd.on_board() && match self.pieces.get(&hd) {
-                        Some((_,dd)) => dd.flip() != *d1,
-                        None => true,
-                    } {
-                        Some((h1,s))
-                    } else {
-                        None
-                    }
-                }
-                _ => Some((h1,s)),
-            })).flat_map(move |(h1,s1)| {
-                let (hd,d1) = match self.pieces.get(h1) {
-                    Some((_,d1)) => (h1.neighbour(*d1),*d1),
-                    None => unreachable!(),
-                };
-                self.pieces.iter()
-                    .filter(move |(h2,(p1,_))| *p1 == self.up && (s1 != SF || h1 != *h2))
-                    .flat_map(move |(h2,(_,d2))| {
-                        let (h2,d2) = if h2 == h1 {
-                            (hd,d1)
+        struct OnePiece(u8);
+        impl Iterator for OnePiece {
+            type Item = (Step, Step);
+            fn next(&mut self) -> Option<(Step, Step)> {
+                let value = match self.0 {
+                    0 => Some((SL, SL)),
+                    1 => Some((SF, SF)),
+                    2 => Some((SR, SR)),
+                    4 => Some((SL, SF)),
+                    5 => Some((SR, SF)),
+                    6 => Some((SF, SL)),
+                    7 => Some((SF, SR)),
+                    _ => None,
+                }?;
+                self.0 += 1;
+                Some(value)
+            }
+        }
+        self.pieces
+            .iter()
+            .filter(|(_, (p1, _))| *p1 == self.up)
+            .tails()
+            .flat_map(move |((h0, (_, d0)), r)| {
+                OnePiece(0)
+                    .filter_map(|(s1, s2)| {
+                        let mut hn = *h0;
+                        let mut dn = *d0;
+                        if [s1, s2].into_iter().all(|s| {
+                            (hn, dn) = s.apply(hn, dn);
+                            hn.on_board()
+                                && match self.pieces.get(&hn) {
+                                    None => true,
+                                    Some((_, dt)) => dt.flip() != dn,
+                                }
+                        }) {
+                            Some(Some(((*h0, s1), (*h0, s2))))
                         } else {
-                            (*h2,*d2)
-                        };
-                        Step::all().filter_map(move |s2| match s2 {
-                            SF => {
-                                let hd2 = h2.neighbour(d2);
-                                if hd2.on_board() && (if hd2 == hd {
-                                    d1.flip() != d2
-                                } else {
-                                    match self.pieces.get(&h2) {
-                                        Some((_,dd)) => dd.flip() != d2,
+                            None
+                        }
+                    })
+                    .chain(
+                        Step::all()
+                            .filter_map(|s0| {
+                                let (ha, da) = s0.apply(*h0, *d0);
+                                if ha.on_board()
+                                    && match self.pieces.get(&ha) {
                                         None => true,
+                                        Some((_, dt)) => dt.flip() != *d0,
                                     }
-                                }) {
-                                    Some(Some(((*h1,s1),(h2,s2))))
+                                {
+                                    Some((s0, ha, da))
                                 } else {
                                     None
                                 }
-                            }
-                            _ => Some(Some(((*h1,s1),(h2,s2))))
-                        })
-                    })
+                            })
+                            .flat_map(move |(s0, ha, da)| {
+                                r.clone().flat_map(move |(h1, (_, d1))| {
+                                    Step::all()
+                                        .filter_map(move |s1| {
+                                            let (hb, db) = s1.apply(*h1, *d1);
+                                            if hb.on_board()
+                                                && match self.pieces.get(&ha) {
+                                                    None => true,
+                                                    Some((_, dt)) => {
+                                                        dt.flip() != *d1
+                                                    }
+                                                }
+                                            {
+                                                Some((s1, hb, db))
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .flat_map(move |(s1, hb, db)| {
+                                            std::iter::once(Some((
+                                                (*h0, s0),
+                                                (*h1, s1),
+                                            )))
+                                            .chain(
+                                                if *h0 == *h1
+                                                    || *h0 == hb
+                                                    || *h1 == ha
+                                                    || ha == hb
+                                                {
+                                                    Some(Some((
+                                                        (*h1, s1),
+                                                        (*h0, s0),
+                                                    )))
+                                                } else {
+                                                    None
+                                                },
+                                            )
+                                        })
+                                })
+                            }),
+                    )
             })
+            .chain(std::iter::once(None))
+    }
+
+    fn step(
+        &mut self,
+        m1: (Hex, Step),
+        m2: (Hex, Step),
+    ) -> Result<(), MoveError> {
+        todo!()
     }
 }
 
@@ -107,22 +221,40 @@ impl Hex {
     fn neighbour(self, d: Direction) -> Self {
         use Direction::*;
         match d {
-            NE => Self { row: self.row + 1, diag: self.diag + 1 },
-            EE => Self { row: self.row, diag: self.diag + 1 },
-            SE => Self { row: self.row - 1, diag: self.diag },
-            SW => Self { row: self.row - 1, diag: self.diag - 1 },
-            WW => Self { row: self.row, diag: self.diag - 1 },
-            NW => Self { row: self.row + 1, diag: self.diag },
+            NE => Self {
+                row: self.row + 1,
+                diag: self.diag + 1,
+            },
+            EE => Self {
+                row: self.row,
+                diag: self.diag + 1,
+            },
+            SE => Self {
+                row: self.row - 1,
+                diag: self.diag,
+            },
+            SW => Self {
+                row: self.row - 1,
+                diag: self.diag - 1,
+            },
+            WW => Self {
+                row: self.row,
+                diag: self.diag - 1,
+            },
+            NW => Self {
+                row: self.row + 1,
+                diag: self.diag,
+            },
         }
     }
 
     fn on_board(self) -> bool {
-        self.row >= -5 &&
-            self.row <= 5 &&
-            self.diag >= -5 &&
-            self.diag <= 5 &&
-            self.diag >= self.row - 5 &&
-            self.diag <= self.row + 5
+        self.row >= -5
+            && self.row <= 5
+            && self.diag >= -5
+            && self.diag <= 5
+            && self.diag >= self.row - 5
+            && self.diag <= self.row + 5
     }
 }
 
@@ -205,7 +337,7 @@ impl Step {
         }
     }
 
-    fn all() -> impl Iterator<Item=Step> {
+    fn all() -> impl Iterator<Item = Step> {
         struct I {
             i: u8,
         }
@@ -218,10 +350,31 @@ impl Step {
                     1 => Some(SF),
                     2 => Some(SR),
                     _ => None,
-                }.map(|a| { self.i += 1; a })
+                }
+                .map(|a| {
+                    self.i += 1;
+                    a
+                })
             }
         }
         I { i: 0 }
     }
 }
 
+trait CloneIteratorExtra: Clone + Iterator {
+    fn tails(self) -> Tails<Self> {
+        Tails(self)
+    }
+}
+
+impl<I: Clone + Iterator> CloneIteratorExtra for I {}
+
+struct Tails<I>(I);
+
+impl<I: Clone + Iterator> Iterator for Tails<I> {
+    type Item = (<I as Iterator>::Item, I);
+    fn next(&mut self) -> Option<Self::Item> {
+        let value = self.0.next()?;
+        Some((value, self.0.clone()))
+    }
+}
