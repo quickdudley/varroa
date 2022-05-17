@@ -127,17 +127,16 @@ impl Board {
             .flat_map(move |((h0, (_, d0)), r)| {
                 OnePiece(0)
                     .filter_map(|(s1, s2)| {
-                        let mut hn = *h0;
-                        let mut dn = *d0;
-                        if [s1, s2].into_iter().all(|s| {
-                            (hn, dn) = s.apply(hn, dn);
-                            hn.on_board()
-                                && match self.pieces.get(&hn) {
-                                    None => true,
-                                    Some((_, dt)) => dt.flip() != dn,
-                                }
-                        }) {
-                            Some(Some(((*h0, s1), (*h0, s2))))
+                        let (h1, d1) = s1.apply(*h0, *d0);
+                        let (h2, d2) = s2.apply(h1, d1);
+                        if h1.on_board() && match self.pieces.get(&h1) {
+                            None => true,
+                            Some((_, dt)) => dt.flip() != d1,
+                        } && h2.on_board() && match self.pieces.get(&h2) {
+                            None => true,
+                            Some((_, dt)) => dt.flip() != d2,
+                        } {
+                            Some(Some(((*h0, s1),(h1, s2))))
                         } else {
                             None
                         }
