@@ -41,6 +41,8 @@ enum MoveError {
         hex: Hex,
     },
     MissingPiece(Hex),
+    OffBoard(Hex),
+    Opposed(Hex, Hex),
 }
 
 impl std::fmt::Display for MoveError {
@@ -62,6 +64,17 @@ impl std::fmt::Display for MoveError {
                 f,
                 "Tried to move piece at {} but there is no piece there.",
                 hex
+            ),
+            Self::OffBoard(hex) => write!(
+                f,
+                "Tried to move piece at {} forward but it is facing the edge of the board.",
+                hex
+            ),
+            Self::Opposed(start, fin) => write!(
+                f,
+                "Tried to move piece at {} forward but it is blocked by the piece at {}.",
+                start,
+                fin
             ),
         }
     }
@@ -177,25 +190,31 @@ impl Board {
                                             None => false,
                                             Some((_, dt)) => dt.flip() == db,
                                         };
-                                        let unblocked_1 = (ha == *h1
-                                            || ha == hb)
-                                            && (db.flip() != da || ha != hb);
-                                        let unblocked_2 = (hb == *h0
-                                            || hb == ha)
-                                            && (da.flip() != db || hb != ha);
-                                        if !blocked_1
-                                            && (!blocked_2 || unblocked_2)
-                                        {
+                                        let unblocked =
+                                            ha != hb || db.flip() != da;
+                                        let n = !blocked_1
+                                            && (!blocked_2 || unblocked)
+                                            && ha != *h1;
+                                        if n {
                                             Some(Some(((*h0, s0), (*h1, s1))))
                                         } else {
                                             None
                                         }
                                         .into_iter()
-                                        .chain(if !blocked_2 && unblocked_1 {
-                                            Some(Some(((*h1, s1), (*h0, s0))))
-                                        } else {
-                                            None
-                                        })
+                                        .chain(
+                                            if !blocked_2
+                                                && ((n && !blocked_1)
+                                                    || unblocked)
+                                                && hb != *h0
+                                            {
+                                                Some(Some((
+                                                    (*h1, s1),
+                                                    (*h0, s0),
+                                                )))
+                                            } else {
+                                                None
+                                            },
+                                        )
                                     })
                             })
                     }))
@@ -208,7 +227,73 @@ impl Board {
         m1: (Hex, Step),
         m2: (Hex, Step),
     ) -> Result<(), MoveError> {
-        todo!()
+        enum Rollback {
+            Delete(Hex),
+            Insert(Hex, Player, Direction),
+        }
+        let mut changes = Vec::new();
+        for r in [m1, m2].into_iter().map(|(h, s)| {
+            let (p, d) = self
+                .pieces
+                .get(&h)
+                .ok_or_else(|| MoveError::MissingPiece(h))?;
+            if *p != self.up {
+                Err(MoveError::WrongPlayer {
+                    actual: *p,
+                    current: self.up,
+                    hex: h,
+                })
+            } else {
+                Ok(())
+            }?;
+            let (h1, d1) = s.apply(h, *d);
+            if h.on_board() {
+                Ok(())
+            } else {
+                Err(MoveError::OffBoard(h))
+            }?;
+            if h == h1 {
+                changes.push(Rollback::Insert(h, *p, *d));
+                self.pieces.insert(h, (*p, *d));
+            } else {
+                match self.pieces.get(&h1) {
+                    None => {
+                        changes.push(Rollback::Delete(h1));
+                        Ok(())
+                    }
+                    Some((pt, dt)) => {
+                        if dt.flip() == d1 {
+                            Err(MoveError::Opposed(h, h1))
+                        } else {
+                            changes.push(Rollback::Insert(h1, *pt, *dt));
+                            Ok(())
+                        }
+                    }
+                }?;
+                changes.push(Rollback::Insert(h, *p, *d));
+                self.pieces.insert(h1, (*p, d1));
+                self.pieces.remove(&h);
+            }
+            Ok(())
+        }) {
+            match r {
+                Ok(_) => (),
+                Err(e) => {
+                    for c in changes {
+                        match c {
+                            Rollback::Delete(h) => {
+                                self.pieces.remove(&h);
+                            }
+                            Rollback::Insert(h, p, d) => {
+                                self.pieces.insert(h, (p, d));
+                            }
+                        }
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        Ok(())
     }
 }
 
