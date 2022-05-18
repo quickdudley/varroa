@@ -129,74 +129,76 @@ impl Board {
                     .filter_map(|(s1, s2)| {
                         let (h1, d1) = s1.apply(*h0, *d0);
                         let (h2, d2) = s2.apply(h1, d1);
-                        if h1.on_board() && match self.pieces.get(&h1) {
-                            None => true,
-                            Some((_, dt)) => dt.flip() != d1,
-                        } && h2.on_board() && match self.pieces.get(&h2) {
-                            None => true,
-                            Some((_, dt)) => dt.flip() != d2,
-                        } {
-                            Some(Some(((*h0, s1),(h1, s2))))
+                        if h1.on_board()
+                            && match self.pieces.get(&h1) {
+                                None => true,
+                                Some((_, dt)) => dt.flip() != d1,
+                            }
+                            && h2.on_board()
+                            && match self.pieces.get(&h2) {
+                                None => true,
+                                Some((_, dt)) => dt.flip() != d2,
+                            }
+                        {
+                            Some(Some(((*h0, s1), (h1, s2))))
                         } else {
                             None
                         }
                     })
-                    .chain(
+                    .chain(r.flat_map(move |(h1, (_, d1))| {
                         Step::all()
                             .filter_map(|s0| {
                                 let (ha, da) = s0.apply(*h0, *d0);
-                                if ha.on_board()
-                                    && match self.pieces.get(&ha) {
-                                        None => true,
-                                        Some((_, dt)) => dt.flip() != *d0,
-                                    }
-                                {
-                                    Some((s0, ha, da))
+                                if ha.on_board() {
+                                    Some((ha, da, s0))
                                 } else {
                                     None
                                 }
                             })
-                            .flat_map(move |(s0, ha, da)| {
-                                r.clone().flat_map(move |(h1, (_, d1))| {
-                                    Step::all()
-                                        .filter_map(move |s1| {
-                                            let (hb, db) = s1.apply(*h1, *d1);
-                                            if hb.on_board()
-                                                && match self.pieces.get(&ha) {
-                                                    None => true,
-                                                    Some((_, dt)) => {
-                                                        dt.flip() != *d1
-                                                    }
-                                                }
-                                            {
-                                                Some((s1, hb, db))
-                                            } else {
-                                                None
-                                            }
+                            .flat_map(move |(ha, da, s0)| {
+                                let blocked_1 = match self.pieces.get(&ha) {
+                                    None => false,
+                                    Some((_, dt)) => dt.flip() == da,
+                                };
+                                Step::all()
+                                    .filter_map(|s1| {
+                                        let (hb, db) = s1.apply(*h1, *d1);
+                                        if hb.on_board() {
+                                            Some((hb, db, s1))
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .flat_map(move |(hb, db, s1)| {
+                                        let blocked_2 = match self
+                                            .pieces
+                                            .get(&hb)
+                                        {
+                                            None => false,
+                                            Some((_, dt)) => dt.flip() == db,
+                                        };
+                                        let unblocked_1 = (ha == *h1
+                                            || ha == hb)
+                                            && (db.flip() != da || ha != hb);
+                                        let unblocked_2 = (hb == *h0
+                                            || hb == ha)
+                                            && (da.flip() != db || hb != ha);
+                                        if !blocked_1
+                                            && (!blocked_2 || unblocked_2)
+                                        {
+                                            Some(Some(((*h0, s0), (*h1, s1))))
+                                        } else {
+                                            None
+                                        }
+                                        .into_iter()
+                                        .chain(if !blocked_2 && unblocked_1 {
+                                            Some(Some(((*h1, s1), (*h0, s0))))
+                                        } else {
+                                            None
                                         })
-                                        .flat_map(move |(s1, hb, db)| {
-                                            std::iter::once(Some((
-                                                (*h0, s0),
-                                                (*h1, s1),
-                                            )))
-                                            .chain(
-                                                if *h0 == *h1
-                                                    || *h0 == hb
-                                                    || *h1 == ha
-                                                    || ha == hb
-                                                {
-                                                    Some(Some((
-                                                        (*h1, s1),
-                                                        (*h0, s0),
-                                                    )))
-                                                } else {
-                                                    None
-                                                },
-                                            )
-                                        })
-                                })
-                            }),
-                    )
+                                    })
+                            })
+                    }))
             })
             .chain(std::iter::once(None))
     }
