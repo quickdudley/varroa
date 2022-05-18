@@ -233,10 +233,8 @@ impl Board {
         }
         let mut changes = Vec::new();
         for r in [m1, m2].into_iter().map(|(h, s)| {
-            let (p, d) = self
-                .pieces
-                .get(&h)
-                .ok_or(MoveError::MissingPiece(h))?;
+            let (p, d) =
+                self.pieces.get(&h).ok_or(MoveError::MissingPiece(h))?;
             if *p != self.up {
                 Err(MoveError::WrongPlayer {
                     actual: *p,
@@ -293,13 +291,17 @@ impl Board {
                 }
             }
         }
-        let mut to_check = changes.into_iter().fold(0, |t, c| t | match c {
-            Rollback::Insert(_, p, _) => {if p == self.up {
-                0
-            } else {
-                p.bitmask()
-            }}
-            _ => 0,
+        let mut to_check = changes.into_iter().fold(0, |t, c| {
+            t | match c {
+                Rollback::Insert(_, p, _) => {
+                    if p == self.up {
+                        0
+                    } else {
+                        p.bitmask()
+                    }
+                }
+                _ => 0,
+            }
         });
         if to_check != 0 {
             for (p, _) in self.pieces.values() {
