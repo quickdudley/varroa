@@ -236,7 +236,7 @@ impl Board {
             let (p, d) = self
                 .pieces
                 .get(&h)
-                .ok_or_else(|| MoveError::MissingPiece(h))?;
+                .ok_or(MoveError::MissingPiece(h))?;
             if *p != self.up {
                 Err(MoveError::WrongPlayer {
                     actual: *p,
@@ -293,7 +293,34 @@ impl Board {
                 }
             }
         }
+        let mut to_check = changes.into_iter().fold(0, |t, c| t | match c {
+            Rollback::Insert(_, p, _) => {if p == self.up {
+                0
+            } else {
+                p.bitmask()
+            }}
+            _ => 0,
+        });
+        if to_check != 0 {
+            for (p, _) in self.pieces.values() {
+                to_check &= !p.bitmask();
+                if to_check == 0 {
+                    break;
+                }
+            }
+        }
+        self.remainder &= !to_check;
+        if let Some(up) = self.roster().next() {
+            self.up = up;
+        }
         Ok(())
+    }
+
+    fn roster(&self) -> Roster {
+        Roster {
+            remainder: self.remainder,
+            start: self.up,
+        }
     }
 }
 
