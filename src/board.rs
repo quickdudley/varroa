@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
-enum Player {
+pub enum Player {
     Red,
     Green,
     Blue,
@@ -16,8 +16,29 @@ impl std::fmt::Display for Player {
     }
 }
 
+impl From<Player> for sdl2::pixels::Color {
+    fn from(p: Player) -> Self {
+        use Player::*;
+        match p {
+            Red => sdl2::pixels::Color::RGB(255, 0, 0),
+            Green => sdl2::pixels::Color::RGB(0, 255, 0),
+            Blue => sdl2::pixels::Color::RGB(0, 0, 255),
+        }
+    }
+}
+impl sdl2::gfx::primitives::ToColor for Player {
+    fn as_rgba(&self) -> (u8, u8, u8, u8) {
+        use Player::*;
+        match self {
+            Red => (255, 0, 0, 255),
+            Green => (0, 255, 0, 255),
+            Blue => (0, 0, 255, 255),
+        }
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
-enum Direction {
+pub enum Direction {
     NE,
     EE,
     SE,
@@ -27,14 +48,14 @@ enum Direction {
 }
 
 #[derive(Copy, Clone, PartialEq)]
-enum Step {
+pub enum Step {
     SL,
     SF,
     SR,
 }
 
 #[derive(Copy, Clone, Debug)]
-enum MoveError {
+pub enum MoveError {
     WrongPlayer {
         actual: Player,
         current: Player,
@@ -83,9 +104,9 @@ impl std::fmt::Display for MoveError {
 impl std::error::Error for MoveError {}
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-struct Hex {
-    row: i8,
-    diag: i8,
+pub struct Hex {
+    pub row: i8,
+    pub diag: i8,
 }
 
 impl std::fmt::Display for Hex {
@@ -97,14 +118,14 @@ impl std::fmt::Display for Hex {
     }
 }
 
-struct Board {
+pub struct Board {
     pieces: HashMap<Hex, (Player, Direction)>,
     up: Player,
     remainder: u8,
 }
 
 impl Board {
-    fn initial2() -> Self {
+    pub fn initial2() -> Self {
         let t = Board::solo();
         Self {
             pieces: t
@@ -125,7 +146,7 @@ impl Board {
         }
     }
 
-    fn initial3() -> Self {
+    pub fn initial3() -> Self {
         let t = Board::solo();
         Self {
             pieces: (0..)
@@ -165,14 +186,14 @@ impl Board {
         }
     }
 
-    fn players(&self) -> Roster {
+    pub fn players(&self) -> impl Iterator<Item = Player> {
         Roster {
             remainder: self.remainder,
             start: self.up,
         }
     }
 
-    fn moves(
+    pub fn moves(
         &self,
     ) -> impl Iterator<Item = Option<((Hex, Step), (Hex, Step))>> + '_ {
         use Step::*;
@@ -283,7 +304,7 @@ impl Board {
             .chain(std::iter::once(None))
     }
 
-    fn step(
+    pub fn step(
         &mut self,
         m1: (Hex, Step),
         m2: (Hex, Step),
@@ -381,13 +402,18 @@ impl Board {
     }
 }
 
-struct Orientation {
+pub const DIRECT: Orientation = Orientation {
+    rotation: 0,
+    flip: false,
+};
+
+pub struct Orientation {
     rotation: u8,
     flip: bool,
 }
 
 impl Orientation {
-    fn all() -> impl Iterator<Item = Self> {
+    pub fn all() -> impl Iterator<Item = Self> {
         (0..6).flat_map(|rotation| {
             std::iter::once(Self {
                 rotation,
@@ -400,7 +426,7 @@ impl Orientation {
         })
     }
 
-    fn view<'s, 'a>(
+    pub fn view<'s, 'a>(
         &'s self,
         board: &'a Board,
     ) -> impl Iterator<Item = (Hex, (Player, Direction))> + 'a {
@@ -408,7 +434,7 @@ impl Orientation {
         let f = self.flip;
         board.pieces.iter().map(move |(h, (p, d))| {
             let rh = h.rotate(r);
-            let rd = d.turn(r);
+            let rd = d.turn(6 - r % 6);
             if f {
                 (rh.reflect(), (*p, rd.reflect()))
             } else {
@@ -486,6 +512,14 @@ impl Hex {
             diag: a * self.diag + c * self.row,
         }
     }
+
+    pub fn all() -> impl Iterator<Item = Self> {
+        (-5..=0)
+            .flat_map(|row| (-5..=row + 5).map(move |diag| Self { row, diag }))
+            .chain((1..=5).flat_map(|row| {
+                (row - 5..=5).map(move |diag| Self { row, diag })
+            }))
+    }
 }
 
 impl Player {
@@ -508,24 +542,7 @@ impl Player {
 
 impl Direction {
     fn turn(self, r: u8) -> Self {
-        use Direction::*;
-        let d = match self {
-            NE => 0,
-            EE => 1,
-            SE => 2,
-            SW => 3,
-            WW => 4,
-            NW => 5,
-        };
-        match (d + r) % 6 {
-            0 => NE,
-            1 => EE,
-            2 => SE,
-            3 => SW,
-            4 => WW,
-            5 => NW,
-            _ => unreachable!(),
-        }
+        (<Self as Into<u8>>::into(self) + r).into()
     }
 
     fn flip(self) -> Self {
@@ -533,14 +550,35 @@ impl Direction {
     }
 
     fn reflect(self) -> Self {
+        (5 - <Self as Into<u8>>::into(self)).into()
+    }
+}
+
+impl From<Direction> for u8 {
+    fn from(source: Direction) -> u8 {
         use Direction::*;
-        match self {
-            NE => NW,
-            EE => WW,
-            SE => SW,
-            SW => SE,
-            WW => EE,
-            NW => EE,
+        match source {
+            NE => 0,
+            EE => 1,
+            SE => 2,
+            SW => 3,
+            WW => 4,
+            NW => 5,
+        }
+    }
+}
+
+impl From<u8> for Direction {
+    fn from(source: u8) -> Self {
+        use Direction::*;
+        match source % 6 {
+            0 => NE,
+            1 => EE,
+            2 => SE,
+            3 => SW,
+            4 => WW,
+            5 => NW,
+            _ => unreachable!(),
         }
     }
 }
