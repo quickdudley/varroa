@@ -326,6 +326,41 @@ impl Board {
     }
 }
 
+struct Orientation {
+    rotation: u8,
+    flip: bool,
+}
+
+impl Orientation {
+    fn all() -> impl Iterator<Item = Self> {
+        (0..6).flat_map(|rotation| {
+            std::iter::once(Self {
+                rotation,
+                flip: false,
+            })
+            .chain(std::iter::once(Self {
+                rotation,
+                flip: true,
+            }))
+        })
+    }
+
+    fn view<'a>(
+        &'a self,
+        board: &'a Board,
+    ) -> impl Iterator<Item = (Hex, (Player, Direction))> + 'a {
+        board.pieces.iter().map(|(h, (p, d))| {
+            let rh = h.rotate(self.rotation);
+            let rd = d.turn(self.rotation);
+            if self.flip {
+                (rh.reflect(), (*p, rd.reflect()))
+            } else {
+                (rh, (*p, rd))
+            }
+        })
+    }
+}
+
 /* (row, diagonal)
  *   (1,0)  (1,1)
  * (0,-1) (0,0) (0,1)
@@ -371,6 +406,29 @@ impl Hex {
             && self.diag >= self.row - 5
             && self.diag <= self.row + 5
     }
+
+    fn reflect(self) -> Self {
+        Self {
+            row: self.row,
+            diag: self.row - self.diag,
+        }
+    }
+
+    fn rotate(self, n: u8) -> Self {
+        let (a, b, c, d) = match n % 6 {
+            0 => (1, 0, 0, 1),
+            1 => (1, 1, -1, 0),
+            2 => (0, 1, -1, -1),
+            3 => (-1, 0, 0, 1),
+            4 => (-1, -1, 1, 0),
+            5 => (0, -1, 1, 1),
+            _ => unreachable!(),
+        };
+        Self {
+            row: b * self.diag + d * self.row,
+            diag: a * self.diag + c * self.row,
+        }
+    }
 }
 
 impl Player {
@@ -415,6 +473,18 @@ impl Direction {
 
     fn flip(self) -> Self {
         self.turn(3)
+    }
+
+    fn reflect(self) -> Self {
+        use Direction::*;
+        match self {
+            NE => NW,
+            EE => WW,
+            SE => SW,
+            SW => SE,
+            WW => EE,
+            NW => EE,
+        }
     }
 }
 
