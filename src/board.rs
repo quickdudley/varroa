@@ -312,17 +312,10 @@ impl Board {
             }
         }
         self.remainder &= !to_check;
-        if let Some(up) = self.roster().next() {
+        if let Some(up) = self.players().next() {
             self.up = up;
         }
         Ok(())
-    }
-
-    fn roster(&self) -> Roster {
-        Roster {
-            remainder: self.remainder,
-            start: self.up,
-        }
     }
 }
 
