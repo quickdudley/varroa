@@ -104,6 +104,67 @@ struct Board {
 }
 
 impl Board {
+    fn initial2() -> Self {
+        let t = Board::solo();
+        Self {
+            pieces: t
+                .pieces
+                .iter()
+                .map(|(h, p)| (*h, *p))
+                .chain(
+                    Orientation {
+                        rotation: 3,
+                        flip: false,
+                    }
+                    .view(&t)
+                    .map(|(h, (_, d))| (h, (Player::Red, d))),
+                )
+                .collect(),
+            up: Player::Blue,
+            remainder: Player::Blue.bitmask() | Player::Red.bitmask(),
+        }
+    }
+
+    fn initial3() -> Self {
+        let t = Board::solo();
+        Self {
+            pieces: (0..)
+                .step_by(2)
+                .zip(Roster {
+                    remainder: 7,
+                    start: Player::Blue,
+                })
+                .flat_map(|(r, p)| {
+                    Orientation {
+                        rotation: r,
+                        flip: false,
+                    }
+                    .view(&t)
+                    .map(move |(h, (_, d))| (h, (p, d)))
+                })
+                .collect(),
+            up: Player::Blue,
+            remainder: 7,
+        }
+    }
+
+    fn solo() -> Self {
+        use Direction::*;
+        Self {
+            pieces: (-5..=-4)
+                .flat_map(|row| {
+                    (-5..=-3).map(move |diag| (Hex { row, diag }, NE)).chain(
+                        (row + 3..=row + 5)
+                            .map(move |diag| (Hex { row, diag }, NW)),
+                    )
+                })
+                .map(|(h, d)| (h, (Player::Blue, d)))
+                .collect(),
+            up: Player::Blue,
+            remainder: Player::Blue.bitmask(),
+        }
+    }
+
     fn players(&self) -> Roster {
         Roster {
             remainder: self.remainder,
@@ -235,24 +296,25 @@ impl Board {
         for r in [m1, m2].into_iter().map(|(h, s)| {
             let (p, d) =
                 self.pieces.get(&h).ok_or(MoveError::MissingPiece(h))?;
-            if *p != self.up {
+            let (p, d) = (*p, *d);
+            if p != self.up {
                 Err(MoveError::WrongPlayer {
-                    actual: *p,
+                    actual: p,
                     current: self.up,
                     hex: h,
                 })
             } else {
                 Ok(())
             }?;
-            let (h1, d1) = s.apply(h, *d);
+            let (h1, d1) = s.apply(h, d);
             if h.on_board() {
                 Ok(())
             } else {
                 Err(MoveError::OffBoard(h))
             }?;
             if h == h1 {
-                changes.push(Rollback::Insert(h, *p, *d));
-                self.pieces.insert(h, (*p, *d));
+                changes.push(Rollback::Insert(h, p, d));
+                self.pieces.insert(h, (p, d));
             } else {
                 match self.pieces.get(&h1) {
                     None => {
@@ -268,8 +330,8 @@ impl Board {
                         }
                     }
                 }?;
-                changes.push(Rollback::Insert(h, *p, *d));
-                self.pieces.insert(h1, (*p, d1));
+                changes.push(Rollback::Insert(h, p, d));
+                self.pieces.insert(h1, (p, d1));
                 self.pieces.remove(&h);
             }
             Ok(())
@@ -312,7 +374,7 @@ impl Board {
             }
         }
         self.remainder &= !to_check;
-        if let Some(up) = self.players().next() {
+        if let Some(up) = self.players().nth(1) {
             self.up = up;
         }
         Ok(())
@@ -338,14 +400,16 @@ impl Orientation {
         })
     }
 
-    fn view<'a>(
-        &'a self,
+    fn view<'s, 'a>(
+        &'s self,
         board: &'a Board,
     ) -> impl Iterator<Item = (Hex, (Player, Direction))> + 'a {
-        board.pieces.iter().map(|(h, (p, d))| {
-            let rh = h.rotate(self.rotation);
-            let rd = d.turn(self.rotation);
-            if self.flip {
+        let r = self.rotation;
+        let f = self.flip;
+        board.pieces.iter().map(move |(h, (p, d))| {
+            let rh = h.rotate(r);
+            let rd = d.turn(r);
+            if f {
                 (rh.reflect(), (*p, rd.reflect()))
             } else {
                 (rh, (*p, rd))
@@ -435,9 +499,9 @@ impl Player {
 
     fn rotate(self) -> Self {
         match self {
-            Self::Red => Self::Green,
-            Self::Green => Self::Blue,
-            Self::Blue => Self::Red,
+            Self::Red => Self::Blue,
+            Self::Green => Self::Red,
+            Self::Blue => Self::Green,
         }
     }
 }
