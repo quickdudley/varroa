@@ -11,6 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
     let (w, h) = drawing::viewport(1024, 768);
+    println!("w: {}, h: {}", w, h);
     let window = video_subsystem
         .window("Varroa", w, h)
         .position_centered()

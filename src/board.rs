@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+#[cfg_attr(test, derive(Ord, PartialOrd, Hash))]
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum Player {
     Red,
@@ -37,7 +38,8 @@ impl sdl2::gfx::primitives::ToColor for Player {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(test, derive(Ord, PartialOrd, Hash))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Direction {
     NE,
     EE,
@@ -47,7 +49,8 @@ pub enum Direction {
     NW,
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[cfg_attr(test, derive(Hash))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Step {
     SL,
     SF,
@@ -103,6 +106,7 @@ impl std::fmt::Display for MoveError {
 
 impl std::error::Error for MoveError {}
 
+#[cfg_attr(test, derive(Ord, PartialOrd))]
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Hex {
     pub row: i8,
@@ -118,6 +122,7 @@ impl std::fmt::Display for Hex {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Board {
     pieces: HashMap<Hex, (Player, Direction)>,
     up: Player,
@@ -205,10 +210,10 @@ impl Board {
                     0 => Some((SL, SL)),
                     1 => Some((SF, SF)),
                     2 => Some((SR, SR)),
-                    4 => Some((SL, SF)),
-                    5 => Some((SR, SF)),
-                    6 => Some((SF, SL)),
-                    7 => Some((SF, SR)),
+                    3 => Some((SL, SF)),
+                    4 => Some((SR, SF)),
+                    5 => Some((SF, SL)),
+                    6 => Some((SF, SR)),
                     _ => None,
                 }?;
                 self.0 += 1;
@@ -240,66 +245,67 @@ impl Board {
                             None
                         }
                     })
-                    .chain(r.flat_map(move |(h1, (_, d1))| {
-                        Step::all()
-                            .filter_map(|s0| {
-                                let (ha, da) = s0.apply(*h0, *d0);
-                                if ha.on_board() {
-                                    Some((ha, da, s0))
+                    .chain(
+                        r.map(move |(h1, (_, d1))| ((h0, d0), (h1, d1)))
+                            .flat_map(|((h0, d0), (h1, d1))| {
+                                Step::all().flat_map(move |s0| {
+                                    Step::all().map(move |s1| {
+                                        ((h0, d0, s0), (h1, d1, s1))
+                                    })
+                                })
+                            })
+                            .filter_map(|(t0, t1)| {
+                                let mut i =
+                                    [t0, t1].into_iter().map(|(h, d, s)| {
+                                        let (hd, dd) = s.apply(*h, *d);
+                                        (h, d, s, hd, dd)
+                                    });
+                                let q0 = i.next()?;
+                                let q1 = i.next()?;
+                                if [q0, q1].into_iter().all(|q| q.3.on_board())
+                                {
+                                    Some((q0, q1))
                                 } else {
                                     None
                                 }
                             })
-                            .flat_map(move |(ha, da, s0)| {
-                                let blocked_1 = match self.pieces.get(&ha) {
-                                    None => false,
-                                    Some((_, dt)) => dt.flip() == da,
-                                };
-                                Step::all()
-                                    .filter_map(|s1| {
-                                        let (hb, db) = s1.apply(*h1, *d1);
-                                        if hb.on_board() {
-                                            Some((hb, db, s1))
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .flat_map(move |(hb, db, s1)| {
-                                        let blocked_2 = match self
-                                            .pieces
-                                            .get(&hb)
-                                        {
-                                            None => false,
-                                            Some((_, dt)) => dt.flip() == db,
-                                        };
-                                        let unblocked =
-                                            ha != hb || db.flip() != da;
-                                        let n = !blocked_1
-                                            && (!blocked_2 || unblocked)
-                                            && ha != *h1;
-                                        if n {
-                                            Some(Some(((*h0, s0), (*h1, s1))))
-                                        } else {
-                                            None
-                                        }
-                                        .into_iter()
-                                        .chain(
-                                            if !blocked_2
-                                                && ((n && !blocked_1)
-                                                    || unblocked)
-                                                && hb != *h0
-                                            {
-                                                Some(Some((
-                                                    (*h1, s1),
-                                                    (*h0, s0),
-                                                )))
-                                            } else {
-                                                None
-                                            },
-                                        )
-                                    })
+                            .flat_map(|(t0, t1)| {
+                                [(t0, t1, false), (t1, t0, true)]
                             })
-                    }))
+                            .filter_map(|(t0, t1, careful)| {
+                                let blocked_1 = t0.2 != SF
+                                    && match self.pieces.get(&t0.3) {
+                                        None => false,
+                                        Some((_, dt)) => dt.flip() == t0.4,
+                                    };
+                                let blocked_2 = t1.2 != SF
+                                    && if t0.3 == t1.3 {
+                                        t0.4.flip() == *t1.1
+                                    } else if let Some((_, dt)) =
+                                        self.pieces.get(&t1.3)
+                                    {
+                                        dt.flip() == *t1.1
+                                    } else {
+                                        false
+                                    };
+                                let swallowed = t0.3 == *t1.0;
+                                let clobbered = t0.2 == SR
+                                    && t1.3 == *t0.0
+                                    && t0.1.turn(5).flip() != t1.4;
+                                let redundant =
+                                    careful && t0.3 != t1.3;
+                                if !blocked_1
+                                    && !blocked_2
+                                    && !clobbered
+                                    && !swallowed
+                                    && !redundant
+                                {
+                                    Some(Some(((*t0.0, t0.2), (*t1.0, t1.2))))
+                                } else {
+                                    None
+                                }
+                            }),
+                    )
             })
             .chain(std::iter::once(None))
     }
@@ -328,14 +334,14 @@ impl Board {
                 Ok(())
             }?;
             let (h1, d1) = s.apply(h, d);
-            if h.on_board() {
+            if h1.on_board() {
                 Ok(())
             } else {
                 Err(MoveError::OffBoard(h))
             }?;
             if h == h1 {
                 changes.push(Rollback::Insert(h, p, d));
-                self.pieces.insert(h, (p, d));
+                self.pieces.insert(h, (p, d1));
             } else {
                 match self.pieces.get(&h1) {
                     None => {
@@ -656,5 +662,160 @@ impl<I: Clone + Iterator> Iterator for Tails<I> {
     fn next(&mut self) -> Option<Self::Item> {
         let value = self.0.next()?;
         Some((value, self.0.clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_moves() {
+        use std::collections::BTreeMap;
+        use std::collections::HashSet;
+        use Direction::*;
+        let examples = [
+            Board {
+                pieces: [(Hex {row: 0, diag: 0}, (Player::Blue, NE))].into_iter().collect(),
+                remainder: Player::Blue.bitmask(),
+                up: Player::Blue,
+            },
+            Board {
+                pieces: [(Hex {row: -4, diag: -4}, (Player::Blue, SW))].into_iter().collect(),
+                remainder: Player::Blue.bitmask(),
+                up: Player::Blue,
+            },
+            Board {
+                pieces: [
+                    (Hex {row: -2, diag: -2}, (Player::Blue, SW)),
+                    (Hex {row: 2, diag: 2}, (Player::Blue, NE)),
+                ].into_iter().collect(),
+                remainder: Player::Blue.bitmask(),
+                up: Player::Blue,
+            },
+            Board {
+                pieces: [
+                    (Hex {row: 0, diag: 0}, (Player::Blue, NE)),
+                    (Hex {row: 1, diag: 1}, (Player::Blue, SW)),
+                ].into_iter().collect(),
+                up: Player::Blue,
+                remainder: Player::Blue.bitmask(),
+            },
+            Board {
+                pieces: [
+                    (Hex {row: 0, diag: 0}, (Player::Blue, NE)),
+                    (Hex {row: 0, diag: 1}, (Player::Blue, NW)),
+                ].into_iter().collect(),
+                up: Player::Blue,
+                remainder: Player::Blue.bitmask(),
+            }
+        ];
+        for board in examples {
+            let mut lookback = HashMap::new();
+            let mut unreached: HashSet<BTreeMap<Hex,(Player, Direction)>> = Hex::all().flat_map(|h0| Step::all().map(move |s0| (h0, s0))).flat_map(|m0| Hex::all().flat_map(|h0| Step::all().map(move |s0| (h0, s0))).map(move |m1| (m0,m1))).filter_map(|(m0,m1)| {
+                let mut t = board.clone();
+                t.step(m0, m1).ok()?;
+                let result: BTreeMap<_,_> = DIRECT.view(&t).collect();
+                lookback.insert(result.clone(), (m0, m1));
+                Some(result)
+            }).collect();
+            unreached.remove(&DIRECT.view(&board).collect());
+            for (m0, m1) in board.moves().flatten() {
+                let mut t = board.clone();
+                match t.step(m0, m1) {
+                    Ok(_) => {
+                        let h = DIRECT.view(&t).collect();
+                        if unreached.contains(&h) {
+                            unreached.remove(&h);
+                            lookback.insert(h, (m0, m1));
+                        } else {
+                            panic!("Board = {:?}\nDuplicate move: {:?}, {:?} vs {:?}", &board, m0, m1, lookback.get(&h));
+                        }
+                    }
+                    Err(e) => {
+                        panic!("Board = {:?}\n{}: {:?}, {:?}.", &board, e, m0, m1);
+                    }
+                }
+            }
+            for u in unreached {
+                panic!("Board = {:?}\nMissing move: {:?}", &board, lookback.get(&u))
+            }
+        }
+    }
+
+    #[test]
+    fn test_step_sl() {
+        use Direction::*;
+        use Step::*;
+        let mut t = Board {
+            pieces: [(Hex { row: 0, diag: 0 }, (Player::Blue, NE))]
+                .into_iter()
+                .collect(),
+            up: Player::Blue,
+            remainder: Player::Blue.bitmask(),
+        };
+        assert!(t
+            .step((Hex { row: 0, diag: 0 }, SL), (Hex { row: 0, diag: 0 }, SL))
+            .is_ok());
+        assert_eq!(
+            t.pieces.get(&Hex { row: 0, diag: 0 }),
+            Some(&(Player::Blue, WW))
+        );
+    }
+
+    #[test]
+    fn test_tails() {
+        let mut i = [1, 2, 3, 4].into_iter().tails();
+        match i.next() {
+            Some((x, r)) => {
+                assert_eq!(x, 1);
+                assert_eq!(r.collect::<Vec<_>>(), vec![2, 3, 4]);
+            }
+            None => {
+                assert!(false);
+            }
+        }
+        match i.next() {
+            Some((x, r)) => {
+                assert_eq!(x, 2);
+                assert_eq!(r.collect::<Vec<_>>(), vec![3, 4]);
+            }
+            None => {
+                assert!(false);
+            }
+        }
+    }
+
+    #[test]
+    fn test_off_board_blocked() {
+        let h1 = Hex { row: -4, diag: -4 };
+        let h2 = Step::SF.apply(h1, Direction::SW).0;
+        let mut board = Board {
+            pieces: [(h1, (Player::Blue, Direction::SW))].into_iter().collect(),
+            up: Player::Blue,
+            remainder: Player::Blue.bitmask(),
+        };
+        match board.step((h1, Step::SF), (h2, Step::SF)) {
+            Ok(_) => {
+                panic!("Moving piece off board succeeded");
+            }
+            Err(MoveError::OffBoard(_)) => {}
+            _ => {
+                panic!("Failed for wrong reason");
+            }
+        }
+    }
+
+    #[test]
+    fn test_front_blocked() {
+        let board = Board {
+            pieces: [
+                (Hex {row: 0, diag: 0}, (Player::Blue, Direction::EE)),
+                (Hex {row: 0, diag: 1}, (Player::Blue, Direction::WW)),
+            ].into_iter().collect(),
+            up: Player::Blue,
+            remainder: Player::Blue.bitmask(),
+        };
+        assert_eq!(board.moves().flatten().filter(|((_,s0),_)| *s0 == Step::SF).count(), 0);
     }
 }
