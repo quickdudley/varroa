@@ -273,32 +273,26 @@ impl Board {
                                 [(t0, t1, false), (t1, t0, true)]
                             })
                             .filter_map(|(t0, t1, careful)| {
-                                let blocked_1 = t0.2 != SF
-                                    && match self.pieces.get(&t0.3) {
-                                        None => false,
-                                        Some((_, dt)) => dt.flip() == t0.4,
-                                    };
-                                let blocked_2 = t1.2 != SF
-                                    && if t0.3 == t1.3 {
-                                        t0.4.flip() == *t1.1
-                                    } else if let Some((_, dt)) =
-                                        self.pieces.get(&t1.3)
-                                    {
-                                        dt.flip() == *t1.1
-                                    } else {
-                                        false
-                                    };
-                                let swallowed = t0.3 == *t1.0;
-                                let clobbered = t0.2 == SR
-                                    && t1.3 == *t0.0
-                                    && t0.1.turn(5).flip() != t1.4;
-                                let redundant =
-                                    careful && t0.3 != t1.3;
-                                if !blocked_1
-                                    && !blocked_2
-                                    && !clobbered
-                                    && !swallowed
-                                    && !redundant
+                                if !(t0.3 == *t1.0
+                                    || careful && t0.3 != t1.3
+                                    || t0.2 == SR
+                                        && t1.3 == *t0.0
+                                        && t0.1.turn(5).flip() != t1.4
+                                    || t0.2 != SF
+                                        && match self.pieces.get(&t0.3) {
+                                            None => false,
+                                            Some((_, dt)) => dt.flip() == t0.4,
+                                        }
+                                    || t1.2 != SF
+                                        && if t0.3 == t1.3 {
+                                            t0.4.flip() == *t1.1
+                                        } else if let Some((_, dt)) =
+                                            self.pieces.get(&t1.3)
+                                        {
+                                            dt.flip() == *t1.1
+                                        } else {
+                                            false
+                                        })
                                 {
                                     Some(Some(((*t0.0, t0.2), (*t1.0, t1.2))))
                                 } else {
@@ -676,49 +670,68 @@ mod tests {
         use Direction::*;
         let examples = [
             Board {
-                pieces: [(Hex {row: 0, diag: 0}, (Player::Blue, NE))].into_iter().collect(),
+                pieces: [(Hex { row: 0, diag: 0 }, (Player::Blue, NE))]
+                    .into_iter()
+                    .collect(),
                 remainder: Player::Blue.bitmask(),
                 up: Player::Blue,
             },
             Board {
-                pieces: [(Hex {row: -4, diag: -4}, (Player::Blue, SW))].into_iter().collect(),
-                remainder: Player::Blue.bitmask(),
-                up: Player::Blue,
-            },
-            Board {
-                pieces: [
-                    (Hex {row: -2, diag: -2}, (Player::Blue, SW)),
-                    (Hex {row: 2, diag: 2}, (Player::Blue, NE)),
-                ].into_iter().collect(),
+                pieces: [(Hex { row: -4, diag: -4 }, (Player::Blue, SW))]
+                    .into_iter()
+                    .collect(),
                 remainder: Player::Blue.bitmask(),
                 up: Player::Blue,
             },
             Board {
                 pieces: [
-                    (Hex {row: 0, diag: 0}, (Player::Blue, NE)),
-                    (Hex {row: 1, diag: 1}, (Player::Blue, SW)),
-                ].into_iter().collect(),
+                    (Hex { row: -2, diag: -2 }, (Player::Blue, SW)),
+                    (Hex { row: 2, diag: 2 }, (Player::Blue, NE)),
+                ]
+                .into_iter()
+                .collect(),
+                remainder: Player::Blue.bitmask(),
+                up: Player::Blue,
+            },
+            Board {
+                pieces: [
+                    (Hex { row: 0, diag: 0 }, (Player::Blue, NE)),
+                    (Hex { row: 1, diag: 1 }, (Player::Blue, SW)),
+                ]
+                .into_iter()
+                .collect(),
                 up: Player::Blue,
                 remainder: Player::Blue.bitmask(),
             },
             Board {
                 pieces: [
-                    (Hex {row: 0, diag: 0}, (Player::Blue, NE)),
-                    (Hex {row: 0, diag: 1}, (Player::Blue, NW)),
-                ].into_iter().collect(),
+                    (Hex { row: 0, diag: 0 }, (Player::Blue, NE)),
+                    (Hex { row: 0, diag: 1 }, (Player::Blue, NW)),
+                ]
+                .into_iter()
+                .collect(),
                 up: Player::Blue,
                 remainder: Player::Blue.bitmask(),
-            }
+            },
         ];
         for board in examples {
             let mut lookback = HashMap::new();
-            let mut unreached: HashSet<BTreeMap<Hex,(Player, Direction)>> = Hex::all().flat_map(|h0| Step::all().map(move |s0| (h0, s0))).flat_map(|m0| Hex::all().flat_map(|h0| Step::all().map(move |s0| (h0, s0))).map(move |m1| (m0,m1))).filter_map(|(m0,m1)| {
-                let mut t = board.clone();
-                t.step(m0, m1).ok()?;
-                let result: BTreeMap<_,_> = DIRECT.view(&t).collect();
-                lookback.insert(result.clone(), (m0, m1));
-                Some(result)
-            }).collect();
+            let mut unreached: HashSet<BTreeMap<Hex, (Player, Direction)>> =
+                Hex::all()
+                    .flat_map(|h0| Step::all().map(move |s0| (h0, s0)))
+                    .flat_map(|m0| {
+                        Hex::all()
+                            .flat_map(|h0| Step::all().map(move |s0| (h0, s0)))
+                            .map(move |m1| (m0, m1))
+                    })
+                    .filter_map(|(m0, m1)| {
+                        let mut t = board.clone();
+                        t.step(m0, m1).ok()?;
+                        let result: BTreeMap<_, _> = DIRECT.view(&t).collect();
+                        lookback.insert(result.clone(), (m0, m1));
+                        Some(result)
+                    })
+                    .collect();
             unreached.remove(&DIRECT.view(&board).collect());
             for (m0, m1) in board.moves().flatten() {
                 let mut t = board.clone();
@@ -733,12 +746,19 @@ mod tests {
                         }
                     }
                     Err(e) => {
-                        panic!("Board = {:?}\n{}: {:?}, {:?}.", &board, e, m0, m1);
+                        panic!(
+                            "Board = {:?}\n{}: {:?}, {:?}.",
+                            &board, e, m0, m1
+                        );
                     }
                 }
             }
             for u in unreached {
-                panic!("Board = {:?}\nMissing move: {:?}", &board, lookback.get(&u))
+                panic!(
+                    "Board = {:?}\nMissing move: {:?}",
+                    &board,
+                    lookback.get(&u)
+                )
             }
         }
     }
@@ -810,12 +830,21 @@ mod tests {
     fn test_front_blocked() {
         let board = Board {
             pieces: [
-                (Hex {row: 0, diag: 0}, (Player::Blue, Direction::EE)),
-                (Hex {row: 0, diag: 1}, (Player::Blue, Direction::WW)),
-            ].into_iter().collect(),
+                (Hex { row: 0, diag: 0 }, (Player::Blue, Direction::EE)),
+                (Hex { row: 0, diag: 1 }, (Player::Blue, Direction::WW)),
+            ]
+            .into_iter()
+            .collect(),
             up: Player::Blue,
             remainder: Player::Blue.bitmask(),
         };
-        assert_eq!(board.moves().flatten().filter(|((_,s0),_)| *s0 == Step::SF).count(), 0);
+        assert_eq!(
+            board
+                .moves()
+                .flatten()
+                .filter(|((_, s0), _)| *s0 == Step::SF)
+                .count(),
+            0
+        );
     }
 }
