@@ -67,6 +67,7 @@ pub enum MoveError {
     MissingPiece(Hex),
     OffBoard(Hex),
     Opposed(Hex, Hex),
+    ExhaustedSkip,
 }
 
 impl std::fmt::Display for MoveError {
@@ -100,6 +101,7 @@ impl std::fmt::Display for MoveError {
                 start,
                 fin
             ),
+            Self::ExhaustedSkip => write!(f, "Tried to skip turn too many times.")
         }
     }
 }
@@ -127,6 +129,7 @@ pub struct Board {
     pieces: HashMap<Hex, (Player, Direction)>,
     up: Player,
     remainder: u8,
+    skipped: u8,
 }
 
 impl Board {
@@ -148,6 +151,7 @@ impl Board {
                 .collect(),
             up: Player::Blue,
             remainder: Player::Blue.bitmask() | Player::Red.bitmask(),
+            skipped: 0,
         }
     }
 
@@ -171,6 +175,7 @@ impl Board {
                 .collect(),
             up: Player::Blue,
             remainder: 7,
+            skipped: 0,
         }
     }
 
@@ -188,6 +193,7 @@ impl Board {
                 .collect(),
             up: Player::Blue,
             remainder: Player::Blue.bitmask(),
+            skipped: 0,
         }
     }
 
@@ -226,9 +232,10 @@ impl Board {
             .tails()
             .flat_map(move |((h0, (_, d0)), r)| {
                 OnePiece(0)
-                    .filter_map(|(s1, s2)| {
+                    .filter_map(move |(s1, s2)| {
                         let (h1, d1) = s1.apply(*h0, *d0);
                         let (h2, d2) = s2.apply(h1, d1);
+                        let mut tfp = true;
                         if h1.on_board()
                             && match self.pieces.get(&h1) {
                                 None => true,
@@ -237,8 +244,24 @@ impl Board {
                             && h2.on_board()
                             && match self.pieces.get(&h2) {
                                 None => true,
-                                Some((_, dt)) => dt.flip() != d2,
+                                Some((pt, dt)) => {
+                                    tfp = *pt != self.up
+                                        || [SL, SR].into_iter().all(|st| {
+                                            st.apply(h2, *dt).1 != d1
+                                        });
+                                    dt.flip() != d2
+                                }
                             }
+                            && (tfp || s1 == SF || s2 != SF || {
+                                let h3 = h0.neighbour(*d0);
+                                !h3.on_board()
+                                    || match self.pieces.get(&h3) {
+                                        None => true,
+                                        Some((pt, dt)) => {
+                                            *pt != self.up || dt != d0
+                                        }
+                                    }
+                            })
                         {
                             Some(Some(((*h0, s1), (h1, s2))))
                         } else {
@@ -274,7 +297,7 @@ impl Board {
                             })
                             .filter_map(|(t0, t1, careful)| {
                                 if !(t0.3 == *t1.0
-                                    || careful && t0.3 != t1.3
+                                    || careful && t0.3 != t1.3 && *t0.0 != t1.3
                                     || t0.2 == SR
                                         && t1.3 == *t0.0
                                         && t0.1.turn(5).flip() != t1.4
@@ -313,6 +336,11 @@ impl Board {
             Delete(Hex),
             Insert(Hex, Player, Direction),
         }
+        if m1.1 != Step::SF && m2.1 != Step::SF && m1.1 != m2.1 && m1.0 == m2.0
+        {
+            return self.skip();
+        }
+        self.skipped = 0;
         let mut changes = Vec::new();
         for r in [m1, m2].into_iter().map(|(h, s)| {
             let (p, d) =
@@ -360,7 +388,7 @@ impl Board {
             match r {
                 Ok(_) => (),
                 Err(e) => {
-                    for c in changes {
+                    for c in changes.into_iter().rev() {
                         match c {
                             Rollback::Delete(h) => {
                                 self.pieces.remove(&h);
@@ -397,6 +425,18 @@ impl Board {
         self.remainder &= !to_check;
         if let Some(up) = self.players().nth(1) {
             self.up = up;
+        }
+        Ok(())
+    }
+
+    pub fn skip(&mut self) -> Result<(), MoveError> {
+        let up = self.up;
+        if up.bitmask() & self.skipped != 0 {
+            return Err(MoveError::ExhaustedSkip);
+        }
+        if let Some(next) = self.players().nth(1) {
+            self.skipped = self.skipped | up.bitmask();
+            self.up = next;
         }
         Ok(())
     }
@@ -502,7 +542,7 @@ impl Hex {
             0 => (1, 0, 0, 1),
             1 => (1, 1, -1, 0),
             2 => (0, 1, -1, -1),
-            3 => (-1, 0, 0, 1),
+            3 => (-1, 0, 0, -1),
             4 => (-1, -1, 1, 0),
             5 => (0, -1, 1, 1),
             _ => unreachable!(),
@@ -662,110 +702,164 @@ impl<I: Clone + Iterator> Iterator for Tails<I> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use Direction::*;
 
     #[test]
-    fn test_moves() {
+    fn test_moves_1() {
+        test_moves(Board {
+            pieces: [(Hex { row: 0, diag: 0 }, (Player::Blue, NE))]
+                .into_iter()
+                .collect(),
+            remainder: Player::Blue.bitmask(),
+            up: Player::Blue,
+            skipped: 0,
+        });
+    }
+
+    #[test]
+    fn test_moves_edge() {
+        test_moves(Board {
+            pieces: [(Hex { row: -4, diag: -4 }, (Player::Blue, SW))]
+                .into_iter()
+                .collect(),
+            remainder: Player::Blue.bitmask(),
+            up: Player::Blue,
+            skipped: 0,
+        });
+    }
+
+    #[test]
+    fn test_moves_independent() {
+        test_moves(Board {
+            pieces: [
+                (Hex { row: -2, diag: -2 }, (Player::Blue, SW)),
+                (Hex { row: 2, diag: 2 }, (Player::Blue, NE)),
+            ]
+            .into_iter()
+            .collect(),
+            remainder: Player::Blue.bitmask(),
+            up: Player::Blue,
+            skipped: 0,
+        });
+    }
+
+    #[test]
+    fn test_moves_opposed() {
+        test_moves(Board {
+            pieces: [
+                (Hex { row: 0, diag: 0 }, (Player::Blue, NE)),
+                (Hex { row: 1, diag: 1 }, (Player::Blue, SW)),
+            ]
+            .into_iter()
+            .collect(),
+            up: Player::Blue,
+            remainder: Player::Blue.bitmask(),
+            skipped: 0,
+        });
+    }
+
+    #[test]
+    fn test_moves_converge() {
+        test_moves(Board {
+            pieces: [
+                (Hex { row: 0, diag: 0 }, (Player::Blue, NE)),
+                (Hex { row: 0, diag: 1 }, (Player::Blue, NW)),
+            ]
+            .into_iter()
+            .collect(),
+            up: Player::Blue,
+            remainder: Player::Blue.bitmask(),
+            skipped: 0,
+        });
+    }
+
+    #[test]
+    fn test_moves_initial() {
+        test_moves(Board::initial2());
+        test_moves(Board::initial3());
+    }
+
+    #[test]
+    fn test_moves_middle() {
+        test_moves(Board {
+            pieces: [
+                (Hex { row: -5, diag: -3 }, (Player::Blue, NE)),
+                (Hex { row: -4, diag: -3 }, (Player::Blue, NE)),
+            ]
+            .into_iter()
+            .collect(),
+            up: Player::Blue,
+            remainder: Player::Blue.bitmask(),
+            skipped: 0,
+        })
+    }
+
+    #[test]
+    fn test_moves_line() {
+        test_moves(Board {
+            pieces: [
+                (Hex { row: -5, diag: -5 }, (Player::Blue, NE)),
+                (Hex { row: -4, diag: -4 }, (Player::Blue, NE)),
+            ]
+            .into_iter()
+            .collect(),
+            up: Player::Blue,
+            remainder: Player::Blue.bitmask(),
+            skipped: 0,
+        })
+    }
+
+    fn test_moves(board: Board) {
         use std::collections::BTreeMap;
         use std::collections::HashSet;
-        use Direction::*;
-        let examples = [
-            Board {
-                pieces: [(Hex { row: 0, diag: 0 }, (Player::Blue, NE))]
-                    .into_iter()
-                    .collect(),
-                remainder: Player::Blue.bitmask(),
-                up: Player::Blue,
-            },
-            Board {
-                pieces: [(Hex { row: -4, diag: -4 }, (Player::Blue, SW))]
-                    .into_iter()
-                    .collect(),
-                remainder: Player::Blue.bitmask(),
-                up: Player::Blue,
-            },
-            Board {
-                pieces: [
-                    (Hex { row: -2, diag: -2 }, (Player::Blue, SW)),
-                    (Hex { row: 2, diag: 2 }, (Player::Blue, NE)),
-                ]
-                .into_iter()
-                .collect(),
-                remainder: Player::Blue.bitmask(),
-                up: Player::Blue,
-            },
-            Board {
-                pieces: [
-                    (Hex { row: 0, diag: 0 }, (Player::Blue, NE)),
-                    (Hex { row: 1, diag: 1 }, (Player::Blue, SW)),
-                ]
-                .into_iter()
-                .collect(),
-                up: Player::Blue,
-                remainder: Player::Blue.bitmask(),
-            },
-            Board {
-                pieces: [
-                    (Hex { row: 0, diag: 0 }, (Player::Blue, NE)),
-                    (Hex { row: 0, diag: 1 }, (Player::Blue, NW)),
-                ]
-                .into_iter()
-                .collect(),
-                up: Player::Blue,
-                remainder: Player::Blue.bitmask(),
-            },
-        ];
-        for board in examples {
-            let mut lookback = HashMap::new();
-            let mut unreached: HashSet<BTreeMap<Hex, (Player, Direction)>> =
-                Hex::all()
-                    .flat_map(|h0| Step::all().map(move |s0| (h0, s0)))
-                    .flat_map(|m0| {
-                        Hex::all()
-                            .flat_map(|h0| Step::all().map(move |s0| (h0, s0)))
-                            .map(move |m1| (m0, m1))
-                    })
-                    .filter_map(|(m0, m1)| {
-                        let mut t = board.clone();
-                        t.step(m0, m1).ok()?;
-                        let result: BTreeMap<_, _> = DIRECT.view(&t).collect();
-                        lookback.insert(result.clone(), (m0, m1));
-                        Some(result)
-                    })
-                    .collect();
-            unreached.remove(&DIRECT.view(&board).collect());
-            for (m0, m1) in board.moves().flatten() {
-                let mut t = board.clone();
-                match t.step(m0, m1) {
-                    Ok(_) => {
-                        let h = DIRECT.view(&t).collect();
-                        if unreached.contains(&h) {
-                            unreached.remove(&h);
-                            lookback.insert(h, (m0, m1));
-                        } else {
-                            panic!("Board = {:?}\nDuplicate move: {:?}, {:?} vs {:?}", &board, m0, m1, lookback.get(&h));
-                        }
-                    }
-                    Err(e) => {
+        let mut lookback = HashMap::new();
+        let mut unreached: HashSet<BTreeMap<Hex, (Player, Direction)>> =
+            Hex::all()
+                .flat_map(|h0| Step::all().map(move |s0| (h0, s0)))
+                .flat_map(|m0| {
+                    Hex::all()
+                        .flat_map(|h0| Step::all().map(move |s0| (h0, s0)))
+                        .map(move |m1| (m0, m1))
+                })
+                .filter_map(|(m0, m1)| {
+                    let mut t = board.clone();
+                    t.step(m0, m1).ok()?;
+                    let result: BTreeMap<_, _> = DIRECT.view(&t).collect();
+                    lookback.insert(result.clone(), (m0, m1));
+                    Some(result)
+                })
+                .collect();
+        unreached.remove(&DIRECT.view(&board).collect());
+        for (m0, m1) in board.moves().flatten() {
+            let mut t = board.clone();
+            match t.step(m0, m1) {
+                Ok(_) => {
+                    let h = DIRECT.view(&t).collect();
+                    if unreached.contains(&h) {
+                        unreached.remove(&h);
+                        lookback.insert(h, (m0, m1));
+                    } else {
                         panic!(
-                            "Board = {:?}\n{}: {:?}, {:?}.",
-                            &board, e, m0, m1
+                            "Board = {:?}\nDuplicate move: {:?}, {:?} vs {:?}",
+                            &board,
+                            m0,
+                            m1,
+                            lookback.get(&h)
                         );
                     }
                 }
+                Err(e) => {
+                    panic!("Board = {:?}\n{}: {:?}, {:?}.", &board, e, m0, m1);
+                }
             }
-            for u in unreached {
-                panic!(
-                    "Board = {:?}\nMissing move: {:?}",
-                    &board,
-                    lookback.get(&u)
-                )
-            }
+        }
+        for u in unreached {
+            panic!("Board = {:?}\nMissing move: {:?}", &board, lookback.get(&u))
         }
     }
 
     #[test]
     fn test_step_sl() {
-        use Direction::*;
         use Step::*;
         let mut t = Board {
             pieces: [(Hex { row: 0, diag: 0 }, (Player::Blue, NE))]
@@ -773,6 +867,7 @@ mod tests {
                 .collect(),
             up: Player::Blue,
             remainder: Player::Blue.bitmask(),
+            skipped: 0,
         };
         assert!(t
             .step((Hex { row: 0, diag: 0 }, SL), (Hex { row: 0, diag: 0 }, SL))
@@ -780,6 +875,48 @@ mod tests {
         assert_eq!(
             t.pieces.get(&Hex { row: 0, diag: 0 }),
             Some(&(Player::Blue, WW))
+        );
+    }
+
+    #[test]
+    fn test_step_fl() {
+        use Step::*;
+        let mut t = Board {
+            pieces: [(Hex { row: 0, diag: 0 }, (Player::Blue, NE))]
+                .into_iter()
+                .collect(),
+            up: Player::Blue,
+            remainder: Player::Blue.bitmask(),
+            skipped: 0,
+        };
+        assert!(t
+            .step((Hex { row: 0, diag: 0 }, SF), (Hex { row: 1, diag: 1 }, SL))
+            .is_ok());
+        assert_eq!(t.pieces.get(&Hex { row: 0, diag: 0 }), None);
+        assert_eq!(
+            t.pieces.get(&Hex { row: 1, diag: 1 }),
+            Some(&(Player::Blue, NW))
+        );
+    }
+
+    #[test]
+    fn test_step_lf() {
+        use Step::*;
+        let mut t = Board {
+            pieces: [(Hex { row: 0, diag: 0 }, (Player::Blue, NE))]
+                .into_iter()
+                .collect(),
+            up: Player::Blue,
+            remainder: Player::Blue.bitmask(),
+            skipped: 0,
+        };
+        assert!(t
+            .step((Hex { row: 0, diag: 0 }, SL), (Hex { row: 0, diag: 0 }, SF))
+            .is_ok());
+        assert_eq!(t.pieces.get(&Hex { row: 0, diag: 0 }), None);
+        assert_eq!(
+            t.pieces.get(&Hex { row: 1, diag: 0 }),
+            Some(&(Player::Blue, NW))
         );
     }
 
@@ -814,6 +951,7 @@ mod tests {
             pieces: [(h1, (Player::Blue, Direction::SW))].into_iter().collect(),
             up: Player::Blue,
             remainder: Player::Blue.bitmask(),
+            skipped: 0,
         };
         match board.step((h1, Step::SF), (h2, Step::SF)) {
             Ok(_) => {
@@ -837,6 +975,7 @@ mod tests {
             .collect(),
             up: Player::Blue,
             remainder: Player::Blue.bitmask(),
+            skipped: 0,
         };
         assert_eq!(
             board

@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .position_centered()
         .build()?;
     let mut canvas = window.into_canvas().build()?;
-    let board = Board::initial3();
+    let board = Board::initial2();
     let mut event_pump = sdl_context.event_pump()?;
     'running: loop {
         canvas.draw_board(&board)?;
